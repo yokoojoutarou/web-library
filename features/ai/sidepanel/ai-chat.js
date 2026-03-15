@@ -1,5 +1,11 @@
 (() => {
+  const DEFAULT_GREETING = '質問を入力してください。新しいチャットを始めるか、履歴からスレッドを再開できます。';
+  const ACTIVE_THREAD_STORAGE_KEY = 'aiActiveThreadId';
+
   let latestSelectedText = '';
+  let activeThreadId = null;
+  let currentThreadMessages = [];
+
   const hasMarkdownIt = typeof window.markdownit === 'function';
   const hasKatex = typeof window.katex?.renderToString === 'function';
 
@@ -145,22 +151,124 @@
     container.scrollTop = container.scrollHeight;
   }
 
+  async function sendDbOp(operation, payload = {}) {
+    return chrome.runtime.sendMessage({
+      type: 'DB_OP',
+      operation,
+      payload,
+    });
+  }
+
+  function createThreadItem(thread, isActive) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `thread-item ${isActive ? 'active' : ''}`;
+    item.dataset.threadId = thread.threadId;
+
+    const title = document.createElement('div');
+    title.className = 'thread-item-title';
+    title.textContent = thread.title || 'New Chat';
+
+    const meta = document.createElement('div');
+    meta.className = 'thread-item-meta';
+    const count = Number(thread.messageCount || 0);
+    meta.textContent = `${thread.updatedAt || ''} • ${count} messages`;
+
+    item.appendChild(title);
+    item.appendChild(meta);
+    return item;
+  }
+
+  function renderThreadList(container, threads) {
+    container.innerHTML = '';
+
+    if (!Array.isArray(threads) || threads.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'thread-item-meta';
+      empty.textContent = '履歴はまだありません。';
+      container.appendChild(empty);
+      return;
+    }
+
+    threads.forEach((thread) => {
+      container.appendChild(createThreadItem(thread, thread.threadId === activeThreadId));
+    });
+  }
+
+  function renderConversation(aiMessages, messages) {
+    aiMessages.innerHTML = '';
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      aiMessages.appendChild(createMessage('assistant', DEFAULT_GREETING));
+      scrollToBottom(aiMessages);
+      return;
+    }
+
+    messages.forEach((message) => {
+      const role = message?.role === 'assistant' ? 'assistant' : 'user';
+      aiMessages.appendChild(createMessage(role, message?.content || ''));
+    });
+
+    scrollToBottom(aiMessages);
+  }
+
+  async function setActiveThreadId(nextThreadId) {
+    activeThreadId = nextThreadId || null;
+    await chrome.storage.local.set({ [ACTIVE_THREAD_STORAGE_KEY]: activeThreadId });
+  }
+
   function init() {
     const aiMessages = document.getElementById('aiMessages');
     const aiPromptInput = document.getElementById('aiPromptInput');
     const aiSendBtn = document.getElementById('aiSendBtn');
+    const aiHistoryBtn = document.getElementById('aiHistoryBtn');
+    const aiNewChatBtn = document.getElementById('aiNewChatBtn');
+    const aiThreadPanel = document.getElementById('aiThreadPanel');
+    const aiThreadList = document.getElementById('aiThreadList');
 
-    if (!aiMessages || !aiPromptInput || !aiSendBtn) {
+    if (!aiMessages || !aiPromptInput || !aiSendBtn || !aiHistoryBtn || !aiNewChatBtn || !aiThreadPanel || !aiThreadList) {
       return;
     }
 
     let isAsking = false;
+
+    const refreshThreads = async () => {
+      try {
+        const response = await sendDbOp('thread.list', { limit: 50 });
+        renderThreadList(aiThreadList, response?.success ? response.data : []);
+      } catch {
+        renderThreadList(aiThreadList, []);
+      }
+    };
+
+    const openThread = async (threadId) => {
+      if (!threadId) return;
+
+      const response = await sendDbOp('thread.get', { threadId });
+      if (!response?.success || !response.data) return;
+
+      const thread = response.data;
+      currentThreadMessages = Array.isArray(thread.messages) ? thread.messages : [];
+      await setActiveThreadId(thread.threadId);
+      renderConversation(aiMessages, currentThreadMessages);
+      await refreshThreads();
+    };
+
+    const startNewChat = async () => {
+      currentThreadMessages = [];
+      await setActiveThreadId(null);
+      renderConversation(aiMessages, currentThreadMessages);
+      aiPromptInput.value = '';
+      await refreshThreads();
+    };
 
     const ask = async () => {
       const prompt = aiPromptInput.value.trim();
       if (!prompt || isAsking) return;
 
       const contextText = latestSelectedText;
+      const userMessage = { role: 'user', content: prompt, timestamp: new Date().toISOString() };
+      currentThreadMessages.push(userMessage);
       aiMessages.appendChild(createMessage('user', prompt));
 
       const pending = createMessage('assistant', 'Thinking...');
@@ -176,16 +284,31 @@
           type: 'AI_ASK',
           prompt,
           contextText,
+          activeThreadId,
         });
 
         pending.remove();
 
         if (response?.success) {
+          const assistantMessage = {
+            role: 'assistant',
+            content: response.data.answer,
+            timestamp: new Date().toISOString(),
+          };
+          currentThreadMessages.push(assistantMessage);
           aiMessages.appendChild(createMessage('assistant', response.data.answer));
+
+          if (response.data?.threadId) {
+            await setActiveThreadId(response.data.threadId);
+          }
+
+          await refreshThreads();
         } else {
+          currentThreadMessages.pop();
           aiMessages.appendChild(createMessage('assistant', response?.error || 'AI request failed.'));
         }
       } catch (error) {
+        currentThreadMessages.pop();
         pending.remove();
         aiMessages.appendChild(createMessage('assistant', 'Connection error. Please try again.'));
       } finally {
@@ -196,6 +319,23 @@
     };
 
     aiSendBtn.addEventListener('click', ask);
+    aiHistoryBtn.addEventListener('click', async () => {
+      aiThreadPanel.classList.toggle('hidden');
+      if (!aiThreadPanel.classList.contains('hidden')) {
+        await refreshThreads();
+      }
+    });
+
+    aiNewChatBtn.addEventListener('click', () => {
+      startNewChat().catch(() => {});
+    });
+
+    aiThreadList.addEventListener('click', (event) => {
+      const target = event.target.closest('.thread-item');
+      if (!target) return;
+      const threadId = target.dataset.threadId;
+      openThread(threadId).catch(() => {});
+    });
 
     aiPromptInput.addEventListener('keydown', (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -208,7 +348,18 @@
       latestSelectedText = event.detail?.text || '';
     });
 
-    scrollToBottom(aiMessages);
+    (async () => {
+      const saved = await chrome.storage.local.get([ACTIVE_THREAD_STORAGE_KEY]);
+      const savedThreadId = saved?.[ACTIVE_THREAD_STORAGE_KEY];
+      if (savedThreadId) {
+        await openThread(savedThreadId);
+      } else {
+        renderConversation(aiMessages, []);
+      }
+      await refreshThreads();
+    })().catch(() => {
+      renderConversation(aiMessages, []);
+    });
   }
 
   window.AIChatFeature = { init };

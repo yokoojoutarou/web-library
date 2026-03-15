@@ -27,7 +27,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'AI_ASK') {
-    handleAiAsk(message.prompt, message.contextText)
+    handleAiAsk(message.prompt, message.contextText, message.activeThreadId)
       .then(result => sendResponse({ success: true, data: result }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
@@ -73,6 +73,26 @@ async function handleDbOperation(operation, payload = {}) {
 
   if (operation === 'chat.listBySite') {
     return repo.getChatsBySite(payload);
+  }
+
+  if (operation === 'thread.create') {
+    return repo.createThread(payload);
+  }
+
+  if (operation === 'thread.list') {
+    return repo.listThreads(payload);
+  }
+
+  if (operation === 'thread.get') {
+    return repo.getThread(payload.threadId);
+  }
+
+  if (operation === 'thread.append') {
+    return repo.appendThreadMessages(payload);
+  }
+
+  if (operation === 'thread.updateTitle') {
+    return repo.updateThreadTitle(payload);
   }
 
   if (operation === 'note.upsert') {
@@ -163,7 +183,7 @@ async function handleTranslation(text, targetLang, sourceLang) {
   };
 }
 
-async function handleAiAsk(prompt, contextText) {
+async function handleAiAsk(prompt, contextText, activeThreadId) {
   const trimmedPrompt = (prompt || '').trim();
   if (!trimmedPrompt) {
     throw new Error('Prompt is empty.');
@@ -182,10 +202,18 @@ async function handleAiAsk(prompt, contextText) {
   const model = aiModels[provider] || getDefaultAiModel(provider);
   const pageContext = await getActiveTabPageContext();
   const selectedText = ((contextText || '').trim() || (pageContext?.selectedText || '').trim()).slice(0, 4000);
+  const threadResult = await resolveThreadForRequest({
+    activeThreadId,
+    pageContext,
+    question: trimmedPrompt,
+  });
+  const thread = threadResult.thread;
+
   const userPrompt = buildAiPromptWithContext({
     question: trimmedPrompt,
     selectedText,
     pageContext,
+    threadMessages: thread?.messages || [],
   });
 
   let result;
@@ -200,54 +228,101 @@ async function handleAiAsk(prompt, contextText) {
     throw new Error(`Unsupported AI provider: ${provider}`);
   }
 
-  await saveAiExchange({
-    pageContext,
+  const updatedThread = await saveAiExchange({
+    threadId: thread.threadId,
     question: trimmedPrompt,
     answer: result?.answer || '',
-    selectedText,
+    provider,
+    apiKey,
+    model,
   });
 
-  return result;
+  return {
+    ...result,
+    threadId: updatedThread?.threadId || thread.threadId,
+    threadTitle: updatedThread?.title || thread.title || 'New Chat',
+  };
 }
 
-async function saveAiExchange({ pageContext, question, answer, selectedText }) {
+async function resolveThreadForRequest({ activeThreadId, pageContext, question }) {
   const repo = globalThis.ExtensionRepository;
-  const url = (pageContext?.url || '').trim();
 
-  if (!repo || !url || !question || !answer) {
+  if (!repo) {
+    throw new Error('Database repository is not initialized.');
+  }
+
+  if (activeThreadId) {
+    const existing = await repo.getThread(activeThreadId);
+    if (existing) {
+      return { thread: existing, created: false };
+    }
+  }
+
+  const created = await repo.createThread({
+    url: (pageContext?.url || '').trim(),
+    title: question || 'New Chat',
+  });
+
+  return { thread: created, created: true };
+}
+
+async function saveAiExchange({ threadId, question, answer, provider, apiKey, model }) {
+  const repo = globalThis.ExtensionRepository;
+
+  if (!repo || !threadId || !question || !answer) {
     return;
   }
 
   try {
-    const title = (pageContext?.title || '').trim();
-    const tags = selectedText ? ['selected-context'] : [];
-
-    await repo.saveChat({
-      url,
-      title,
-      tags,
+    const updated = await repo.appendThreadMessages({
+      threadId,
       messages: [
         { role: 'user', content: question, timestamp: new Date().toISOString() },
         { role: 'assistant', content: answer, timestamp: new Date().toISOString() },
       ],
     });
+
+    const normalizedTitle = String(updated?.title || '').trim();
+    if (!normalizedTitle || normalizedTitle === 'New Chat') {
+      const generated = await generateThreadTitle({ provider, apiKey, model, question, answer });
+      if (generated) {
+        return await repo.updateThreadTitle({ threadId, title: generated });
+      }
+    }
+
+    return updated;
   } catch {
     // DB write failures must not break AI response flow.
+    return null;
   }
 }
 
-function buildAiPromptWithContext({ question, selectedText, pageContext }) {
+function buildAiPromptWithContext({ question, selectedText, pageContext, threadMessages = [] }) {
   const title = (pageContext?.title || '').trim();
   const url = (pageContext?.url || '').trim();
   const pageText = (pageContext?.pageText || '').trim();
 
   const parts = [
     'You are answering a question about the current website content.',
+    'Continue the conversation naturally if previous messages are provided.',
     'Use the selected excerpt as highest-priority evidence when available.',
     'Use full page context as background/supporting context.',
-    '',
-    `Question:\n${question}`,
   ];
+
+  const trimmedThread = Array.isArray(threadMessages)
+    ? threadMessages.slice(-20).map((item) => ({
+        role: item?.role === 'assistant' ? 'assistant' : 'user',
+        content: String(item?.content || '').trim(),
+      })).filter((item) => item.content)
+    : [];
+
+  if (trimmedThread.length > 0) {
+    parts.push('', 'Conversation so far:');
+    trimmedThread.forEach((message) => {
+      const speaker = message.role === 'assistant' ? 'Assistant' : 'User';
+      parts.push(`${speaker}: ${message.content}`);
+    });
+  }
 
   if (selectedText) {
     parts.push('', 'PRIORITY CONTEXT (selected text, highest weight):', selectedText);
@@ -263,7 +338,38 @@ function buildAiPromptWithContext({ question, selectedText, pageContext }) {
     parts.push('', 'PAGE CONTEXT (full page content, lower weight):', pageText);
   }
 
+  parts.push('', `Question:\n${question}`);
+
   return parts.join('\n');
+}
+
+async function generateThreadTitle({ provider, apiKey, model, question, answer }) {
+  const titlePrompt = [
+    'Create a concise chat thread title in 8 words or fewer.',
+    'Return title text only. No quotes.',
+    '',
+    `User: ${question}`,
+    `Assistant: ${answer}`,
+  ].join('\n');
+
+  try {
+    let result;
+    if (provider === 'openai') {
+      result = await askOpenAI(apiKey, model, titlePrompt);
+    } else if (provider === 'anthropic') {
+      result = await askAnthropic(apiKey, model, titlePrompt);
+    } else if (provider === 'gemini') {
+      result = await askGemini(apiKey, model, titlePrompt);
+    } else {
+      return '';
+    }
+
+    const raw = String(result?.answer || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    return raw.length > 80 ? `${raw.slice(0, 79)}…` : raw;
+  } catch {
+    return '';
+  }
 }
 
 async function getActiveTabPageContext() {

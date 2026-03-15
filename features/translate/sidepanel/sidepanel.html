@@ -155,6 +155,16 @@
   </div>
 
   <div id="aiWorkspace" class="hidden">
+    <div class="ai-toolbar">
+      <button id="aiHistoryBtn" class="toolbar-btn" type="button">履歴</button>
+      <button id="aiNewChatBtn" class="toolbar-btn toolbar-btn-primary" type="button">新しいチャット</button>
+    </div>
+
+    <div id="aiThreadPanel" class="thread-panel hidden">
+      <div class="thread-panel-header">スレッド一覧</div>
+      <div id="aiThreadList" class="thread-list"></div>
+    </div>
+
     <div id="aiMessages" class="ai-messages">
       <div class="ai-msg ai-msg-assistant">
         <div class="ai-msg-body">質問を入力してください。現在は雛形のため、スタブ応答を返します。</div>

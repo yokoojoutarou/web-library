@@ -2,15 +2,23 @@
 
 (function initExtensionDb(global) {
   const DB_NAME = 'deepl_translate_extension_db';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
 
   class ExtensionDb extends Dexie {
     constructor() {
       super(DB_NAME);
 
+      this.version(1).stores({
+        sites: '&siteId,url,updatedAt,*tags',
+        chats: '&chatId,siteId,createdAt,updatedAt,*tags',
+        notes: '&noteId,siteId,createdAt,updatedAt,*tags',
+        markers: '&markerId,siteId,createdAt,updatedAt,color,*tags',
+      });
+
       this.version(DB_VERSION).stores({
         sites: '&siteId,url,updatedAt,*tags',
         chats: '&chatId,siteId,createdAt,updatedAt,*tags',
+        chatThreads: '&threadId,siteId,updatedAt,createdAt',
         notes: '&noteId,siteId,createdAt,updatedAt,*tags',
         markers: '&markerId,siteId,createdAt,updatedAt,color,*tags',
       });
@@ -106,6 +114,84 @@
     await db.chats.put(chat);
     await db.sites.update(site.siteId, { updatedAt: timestamp });
     return { ...chat };
+  }
+
+  function createThreadTitleSeed(seed) {
+    const text = String(seed || '').replace(/\s+/g, ' ').trim();
+    if (!text) return 'New Chat';
+    return text.length > 60 ? `${text.slice(0, 59)}…` : text;
+  }
+
+  async function createThread({ url = '', siteId = '', title = '' }) {
+    const timestamp = nowIso();
+    let resolvedSiteId = siteId || '';
+
+    if (!resolvedSiteId && url) {
+      const site = await ensureSite({ url, title: title || '' });
+      resolvedSiteId = site.siteId;
+    }
+
+    const thread = {
+      threadId: global.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      siteId: resolvedSiteId || null,
+      title: createThreadTitleSeed(title),
+      messages: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      messageCount: 0,
+      schemaVersion: 2,
+    };
+
+    await db.chatThreads.put(thread);
+    return { ...thread };
+  }
+
+  async function getThread(threadId) {
+    if (!threadId) return null;
+    return db.chatThreads.get(threadId);
+  }
+
+  async function listThreads({ limit = 50 } = {}) {
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.floor(limit))) : 50;
+    const items = await db.chatThreads.orderBy('updatedAt').reverse().limit(safeLimit).toArray();
+    return items;
+  }
+
+  async function updateThreadTitle({ threadId, title }) {
+    if (!threadId) throw new Error('threadId is required.');
+    const normalizedTitle = createThreadTitleSeed(title);
+    await db.chatThreads.update(threadId, {
+      title: normalizedTitle,
+      updatedAt: nowIso(),
+    });
+    return db.chatThreads.get(threadId);
+  }
+
+  async function appendThreadMessages({ threadId, messages = [] }) {
+    if (!threadId) throw new Error('threadId is required.');
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new Error('messages must be a non-empty array.');
+    }
+
+    const thread = await db.chatThreads.get(threadId);
+    if (!thread) {
+      throw new Error('Thread not found.');
+    }
+
+    const mergedMessages = [...(thread.messages || []), ...messages];
+    const timestamp = nowIso();
+
+    await db.chatThreads.update(threadId, {
+      messages: mergedMessages,
+      messageCount: mergedMessages.length,
+      updatedAt: timestamp,
+    });
+
+    if (thread.siteId) {
+      await db.sites.update(thread.siteId, { updatedAt: timestamp });
+    }
+
+    return db.chatThreads.get(threadId);
   }
 
   async function getChatsBySite({ siteId, url }) {
@@ -273,5 +359,10 @@
     renameTag,
     findByTag,
     getSiteByUrl,
+    createThread,
+    getThread,
+    listThreads,
+    updateThreadTitle,
+    appendThreadMessages,
   };
 })(globalThis);
