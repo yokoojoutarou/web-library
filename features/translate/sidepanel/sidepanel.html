@@ -204,15 +204,10 @@
           <input id="notesTagsInput" class="notes-tags-input" type="text" placeholder="research, summary, todo">
         </div>
 
-        <div class="notes-editor-grid">
-          <div class="notes-pane">
-            <div class="notes-pane-title">Markdown</div>
-            <textarea id="notesMarkdownInput" class="notes-markdown-input" placeholder="# Notes\n\nWrite your note here..."></textarea>
-          </div>
-          <div class="notes-pane">
-            <div class="notes-pane-title">Preview</div>
-            <div id="notesPreview" class="notes-preview"></div>
-          </div>
+        <div id="notesSheet" class="notes-pane notes-sheet">
+          <div id="notesSheetTitle" class="notes-pane-title">Preview</div>
+          <textarea id="notesMarkdownInput" class="notes-markdown-input hidden" placeholder="# Notes\n\nWrite your note here..."></textarea>
+          <div id="notesPreview" class="notes-preview"></div>
         </div>
 
         <div id="notesStatus" class="notes-status"></div>
