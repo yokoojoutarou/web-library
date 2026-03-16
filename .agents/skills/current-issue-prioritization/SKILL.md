@@ -31,7 +31,7 @@ description: 現在openなGitHub Issueを読み取り、依存関係・実装難
 
 ## 実行順
 
-1. ローカルストレージDBのスキーマとアクセサを定義する。
+1. Dexie（IndexedDB）ベースのDBスキーマとアクセサを定義する。
 2. メモ機能を追加し、AI回答からメモ化できるようにする。
 3. ウェブサイトマーカー機能を追加する。
 4. 保存済みサイト/メモを束ねるライブラリーUIを設計する。
@@ -41,5 +41,5 @@ description: 現在openなGitHub Issueを読み取り、依存関係・実装難
 
 - 依存Issueを飛ばして後続Issueを先行実装しない。
 - 各Issueは既存の翻訳機能とAI機能を壊さない範囲で分離実装する。
-- 保存系データは `chrome.storage.local` を第一選択とし、構造の互換性を維持する。
+- 保存系ドメインデータは `Dexie.js`（IndexedDB）を第一選択とし、設定値は `chrome.storage.local` に分離する。
 - 新規UIは side panel に段階的に追加し、既存ワークスペース切替と競合させない。
