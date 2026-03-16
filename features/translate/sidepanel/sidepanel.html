@@ -186,15 +186,10 @@
   </div>
 
   <div id="notesWorkspace" class="hidden">
-    <div class="notes-toolbar">
-      <button id="notesBackBtn" class="toolbar-btn hidden" type="button">← 戻る</button>
-      <button id="notesNewBtn" class="toolbar-btn" type="button">新規メモ</button>
-      <button id="notesInsertSelectionBtn" class="toolbar-btn" type="button">選択テキスト引用</button>
-      <button id="notesDeleteBtn" class="toolbar-btn toolbar-btn-primary" type="button" disabled>削除</button>
-    </div>
-
     <div id="notesLayout" class="notes-layout">
       <aside class="notes-sidebar">
+        <button id="notesNewBtn" class="notes-new-btn notes-new-btn-top" type="button">+ 新規作成</button>
+
         <div class="notes-section">
           <button id="notesPageSectionToggle" class="notes-section-toggle" type="button" aria-expanded="true">
             <span>このページのメモ</span>
@@ -217,6 +212,11 @@
       </aside>
 
       <section id="notesEditorWrap" class="notes-editor-wrap">
+        <div class="notes-editor-actions">
+          <button id="notesBackBtn" class="toolbar-btn" type="button">← 戻る</button>
+          <button id="notesInsertSelectionBtn" class="toolbar-btn" type="button">選択テキスト引用</button>
+        </div>
+
         <div class="notes-field-group">
           <label for="notesTagsInput" class="notes-field-label">Tags (comma separated)</label>
           <input id="notesTagsInput" class="notes-tags-input" type="text" placeholder="research, summary, todo">

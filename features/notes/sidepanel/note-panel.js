@@ -170,6 +170,9 @@
       item.className = `notes-item ${note.noteId === currentNoteId ? 'active' : ''}`;
       item.dataset.noteId = note.noteId;
 
+      const main = document.createElement('div');
+      main.className = 'notes-item-main';
+
       const title = document.createElement('div');
       title.className = 'notes-item-title';
       title.textContent = deriveNoteTitle(note.markdown);
@@ -178,8 +181,18 @@
       meta.className = 'notes-item-meta';
       meta.textContent = note.updatedAt || '';
 
-      item.appendChild(title);
-      item.appendChild(meta);
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'notes-item-delete';
+      deleteBtn.title = 'メモを削除';
+      deleteBtn.setAttribute('aria-label', 'メモを削除');
+      deleteBtn.dataset.noteId = note.noteId;
+      deleteBtn.textContent = '🗑';
+
+      main.appendChild(title);
+      main.appendChild(meta);
+      item.appendChild(main);
+      item.appendChild(deleteBtn);
       notesListElement.appendChild(item);
     });
   }
@@ -193,21 +206,19 @@
     return [...currentPageNotes, ...allNotes].find((note) => note.noteId === noteId) || null;
   }
 
-  function clearEditor(markdownInput, tagsInput, notesPreview, notesDeleteBtn) {
+  function clearEditor(markdownInput, tagsInput, notesPreview) {
     currentNoteId = null;
     currentSourceLinks = [];
     markdownInput.value = '';
     tagsInput.value = '';
-    notesDeleteBtn.disabled = true;
     renderPreview(notesPreview, '');
   }
 
-  function openNote(note, markdownInput, tagsInput, notesPreview, notesDeleteBtn) {
+  function openNote(note, markdownInput, tagsInput, notesPreview) {
     currentNoteId = note.noteId;
     currentSourceLinks = Array.isArray(note.sourceLinks) ? note.sourceLinks : [];
     markdownInput.value = note.markdown || '';
     tagsInput.value = formatTags(note.tags);
-    notesDeleteBtn.disabled = false;
     renderPreview(notesPreview, markdownInput.value);
   }
 
@@ -222,7 +233,7 @@
     renderAllLists(notesPageList, notesAllList);
   }
 
-  async function persistNote({ notesMarkdownInput, notesTagsInput, notesStatus, notesDeleteBtn, notesPageList, notesAllList, silent = false }) {
+  async function persistNote({ notesMarkdownInput, notesTagsInput, notesStatus, notesPageList, notesAllList, silent = false }) {
     const markdown = String(notesMarkdownInput.value || '').trim();
     if (!markdown || !activePageUrl || isSaving) {
       return false;
@@ -245,7 +256,6 @@
 
       currentNoteId = response.data.noteId;
       currentSourceLinks = Array.isArray(response.data.sourceLinks) ? response.data.sourceLinks : [];
-      notesDeleteBtn.disabled = false;
 
       if (!silent) {
         setStatus(notesStatus, 'メモを保存しました。');
@@ -263,7 +273,7 @@
     }
   }
 
-  function scheduleAutoSave({ notesMarkdownInput, notesTagsInput, notesStatus, notesDeleteBtn, notesPageList, notesAllList }) {
+  function scheduleAutoSave({ notesMarkdownInput, notesTagsInput, notesStatus, notesPageList, notesAllList }) {
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
     }
@@ -273,12 +283,38 @@
         notesMarkdownInput,
         notesTagsInput,
         notesStatus,
-        notesDeleteBtn,
         notesPageList,
         notesAllList,
         silent: true,
       }).catch(() => {});
     }, 700);
+  }
+
+  async function deleteNoteById({ noteId, notesMarkdownInput, notesTagsInput, notesPreview, notesStatus, notesPageList, notesAllList }) {
+    if (!noteId) return false;
+
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
+
+    try {
+      const response = await sendDbOp('note.delete', { noteId });
+      if (!response?.success) {
+        throw new Error(response?.error || 'Delete failed.');
+      }
+
+      if (currentNoteId === noteId) {
+        clearEditor(notesMarkdownInput, notesTagsInput, notesPreview);
+      }
+
+      await refreshNotes({ notesPageList, notesAllList });
+      setStatus(notesStatus, 'メモを削除しました。');
+      return true;
+    } catch (error) {
+      setStatus(notesStatus, error?.message || '削除に失敗しました。', true);
+      return false;
+    }
   }
 
   function appendSelectionQuote(markdownInput, notesPreview, notesStatus) {
@@ -328,9 +364,8 @@
     const notesStatus = document.getElementById('notesStatus');
     const notesNewBtn = document.getElementById('notesNewBtn');
     const notesInsertSelectionBtn = document.getElementById('notesInsertSelectionBtn');
-    const notesDeleteBtn = document.getElementById('notesDeleteBtn');
 
-    if (!notesLayout || !notesBackBtn || !notesPageSectionToggle || !notesPageSectionBody || !notesAllSectionToggle || !notesAllSectionBody || !notesPageList || !notesAllList || !notesEditorWrap || !notesMarkdownInput || !notesPreview || !notesSheetTitle || !notesTagsInput || !notesStatus || !notesNewBtn || !notesInsertSelectionBtn || !notesDeleteBtn) {
+    if (!notesLayout || !notesBackBtn || !notesPageSectionToggle || !notesPageSectionBody || !notesAllSectionToggle || !notesAllSectionBody || !notesPageList || !notesAllList || !notesEditorWrap || !notesMarkdownInput || !notesPreview || !notesSheetTitle || !notesTagsInput || !notesStatus || !notesNewBtn || !notesInsertSelectionBtn) {
       return;
     }
 
@@ -351,7 +386,6 @@
         notesMarkdownInput,
         notesTagsInput,
         notesStatus,
-        notesDeleteBtn,
         notesPageList,
         notesAllList,
       });
@@ -399,7 +433,6 @@
         notesMarkdownInput,
         notesTagsInput,
         notesStatus,
-        notesDeleteBtn,
         notesPageList,
         notesAllList,
       });
@@ -424,7 +457,7 @@
     });
 
     notesNewBtn.addEventListener('click', () => {
-      clearEditor(notesMarkdownInput, notesTagsInput, notesPreview, notesDeleteBtn);
+      clearEditor(notesMarkdownInput, notesTagsInput, notesPreview);
       renderAllLists(notesPageList, notesAllList);
       setStatus(notesStatus, '新規メモを開始しました。');
       setNotesViewMode({ notesLayout, notesBackBtn, mode: 'editing' });
@@ -443,36 +476,29 @@
         notesMarkdownInput,
         notesTagsInput,
         notesStatus,
-        notesDeleteBtn,
         notesPageList,
         notesAllList,
       });
     });
 
-    notesDeleteBtn.addEventListener('click', async () => {
-      if (!currentNoteId) return;
-
-      if (autoSaveTimer) {
-        clearTimeout(autoSaveTimer);
-        autoSaveTimer = null;
+    const handleNoteListClick = async (event) => {
+      const deleteBtn = event.target.closest('.notes-item-delete');
+      if (deleteBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        const deleteId = deleteBtn.dataset.noteId;
+        await deleteNoteById({
+          noteId: deleteId,
+          notesMarkdownInput,
+          notesTagsInput,
+          notesPreview,
+          notesStatus,
+          notesPageList,
+          notesAllList,
+        });
+        return;
       }
 
-      try {
-        const response = await sendDbOp('note.delete', { noteId: currentNoteId });
-        if (!response?.success) {
-          throw new Error(response?.error || 'Delete failed.');
-        }
-
-        clearEditor(notesMarkdownInput, notesTagsInput, notesPreview, notesDeleteBtn);
-        await refreshNotes({ notesPageList, notesAllList });
-        setStatus(notesStatus, 'メモを削除しました。');
-        setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
-      } catch (error) {
-        setStatus(notesStatus, error?.message || '削除に失敗しました。', true);
-      }
-    });
-
-    const handleNoteListClick = (event) => {
       const target = event.target.closest('.notes-item');
       if (!target) return;
 
@@ -480,7 +506,7 @@
       const note = findNoteById(noteId);
       if (!note) return;
 
-      openNote(note, notesMarkdownInput, notesTagsInput, notesPreview, notesDeleteBtn);
+      openNote(note, notesMarkdownInput, notesTagsInput, notesPreview);
       renderAllLists(notesPageList, notesAllList);
       setStatus(notesStatus, 'メモを読み込みました。');
       setNotesViewMode({ notesLayout, notesBackBtn, mode: 'editing' });

@@ -141,14 +141,6 @@ body {
   flex-direction: column;
 }
 
-.notes-toolbar {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
-}
-
 .notes-layout {
   display: grid;
   grid-template-columns: 130px 1fr;
@@ -210,11 +202,10 @@ body {
 }
 
 .notes-section-toggle {
-  width: 100%;
+  flex: 1;
   border: none;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-primary);
+  background: var(--accent-glow);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 600;
   padding: 8px 10px;
@@ -222,6 +213,27 @@ body {
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
+  border-bottom: 1px solid var(--accent-dim);
+}
+
+.notes-new-btn {
+  border: 1px solid var(--accent-dim);
+  background: var(--accent-glow);
+  color: var(--accent);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.notes-new-btn:hover {
+  background: var(--accent-glow-strong);
+}
+
+.notes-new-btn-top {
+  width: 100%;
 }
 
 .notes-section-caret {
@@ -249,6 +261,10 @@ body {
   text-align: left;
   padding: 8px;
   cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .notes-item.active {
@@ -258,6 +274,7 @@ body {
 
 .notes-item-title {
   font-size: 12px;
+  flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -269,11 +286,38 @@ body {
   color: var(--text-muted);
 }
 
+.notes-item-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.notes-item-delete {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.notes-item-delete:hover {
+  color: var(--error);
+  background: var(--error-bg);
+}
+
 .notes-editor-wrap {
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.notes-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .notes-field-group {
