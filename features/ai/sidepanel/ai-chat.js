@@ -195,18 +195,46 @@
     });
   }
 
+  function normalizePersistedMessages(messages) {
+    if (!Array.isArray(messages)) return [];
+
+    return messages
+      .map((message) => {
+        const role = message?.role;
+        if (role !== 'user' && role !== 'assistant') {
+          return null;
+        }
+
+        if (typeof message?.content !== 'string') {
+          return null;
+        }
+
+        const content = message.content.trim();
+        if (!content) {
+          return null;
+        }
+
+        return {
+          role,
+          content,
+        };
+      })
+      .filter(Boolean);
+  }
+
   function renderConversation(aiMessages, messages) {
     aiMessages.innerHTML = '';
 
-    if (!Array.isArray(messages) || messages.length === 0) {
+    const normalizedMessages = normalizePersistedMessages(messages);
+
+    if (normalizedMessages.length === 0) {
       aiMessages.appendChild(createMessage('assistant', DEFAULT_GREETING));
       scrollToBottom(aiMessages);
       return;
     }
 
-    messages.forEach((message) => {
-      const role = message?.role === 'assistant' ? 'assistant' : 'user';
-      aiMessages.appendChild(createMessage(role, message?.content || ''));
+    normalizedMessages.forEach((message) => {
+      aiMessages.appendChild(createMessage(message.role, message.content));
     });
 
     scrollToBottom(aiMessages);
@@ -248,7 +276,7 @@
       if (!response?.success || !response.data) return;
 
       const thread = response.data;
-      currentThreadMessages = Array.isArray(thread.messages) ? thread.messages : [];
+      currentThreadMessages = normalizePersistedMessages(thread.messages);
       await setActiveThreadId(thread.threadId);
       renderConversation(aiMessages, currentThreadMessages);
       await refreshThreads();

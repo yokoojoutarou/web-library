@@ -2,7 +2,7 @@
 
 (function initExtensionDb(global) {
   const DB_NAME = 'deepl_translate_extension_db';
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
 
   class ExtensionDb extends Dexie {
     constructor() {
@@ -17,10 +17,11 @@
 
       this.version(DB_VERSION).stores({
         sites: '&siteId,url,updatedAt,*tags',
-        chats: '&chatId,siteId,createdAt,updatedAt,*tags',
-        chatThreads: '&threadId,siteId,updatedAt,createdAt',
-        notes: '&noteId,siteId,createdAt,updatedAt,*tags',
-        markers: '&markerId,siteId,createdAt,updatedAt,color,*tags',
+        // Deprecated: use chatThreads going forward.
+        chats: '&chatId,siteId,createdAt,updatedAt,[siteId+updatedAt]',
+        chatThreads: '&threadId,siteId,updatedAt,createdAt,[siteId+updatedAt]',
+        notes: '&noteId,siteId,createdAt,updatedAt,*tags,[siteId+updatedAt]',
+        markers: '&markerId,siteId,createdAt,updatedAt,color,*tags,[siteId+updatedAt]',
       });
     }
   }
@@ -92,6 +93,14 @@
     return { ...site };
   }
 
+  function rangeBySiteAndUpdatedAt(siteId) {
+    return {
+      lower: [siteId, Dexie.minKey],
+      upper: [siteId, Dexie.maxKey],
+    };
+  }
+
+  /** @deprecated Use thread APIs instead. */
   async function saveChat({ url, title = '', messages = [], tags = [] }) {
     if (!Array.isArray(messages)) {
       throw new Error('messages must be an array.');
@@ -104,7 +113,6 @@
       siteId: site.siteId,
       url: site.url,
       title: site.title,
-      tags: normalizeTags(tags),
       messages,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -154,7 +162,15 @@
   async function listThreads({ limit = 50 } = {}) {
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(200, Math.floor(limit))) : 50;
     const items = await db.chatThreads.orderBy('updatedAt').reverse().limit(safeLimit).toArray();
-    return items;
+    return items.map((thread) => ({
+      threadId: thread.threadId,
+      siteId: thread.siteId || null,
+      title: thread.title || 'New Chat',
+      createdAt: thread.createdAt,
+      updatedAt: thread.updatedAt,
+      messageCount: Number(thread.messageCount || (Array.isArray(thread.messages) ? thread.messages.length : 0)),
+      schemaVersion: thread.schemaVersion,
+    }));
   }
 
   async function updateThreadTitle({ threadId, title }) {
@@ -173,31 +189,43 @@
       throw new Error('messages must be a non-empty array.');
     }
 
-    const thread = await db.chatThreads.get(threadId);
-    if (!thread) {
-      throw new Error('Thread not found.');
-    }
-
-    const mergedMessages = [...(thread.messages || []), ...messages];
     const timestamp = nowIso();
+    let threadExists = false;
+    let affectedSiteId = null;
 
-    await db.chatThreads.update(threadId, {
-      messages: mergedMessages,
-      messageCount: mergedMessages.length,
-      updatedAt: timestamp,
+    await db.transaction('rw', db.chatThreads, db.sites, async () => {
+      await db.chatThreads.where('threadId').equals(threadId).modify((thread) => {
+        threadExists = true;
+        const current = Array.isArray(thread.messages) ? thread.messages : [];
+        const merged = [...current, ...messages];
+        thread.messages = merged;
+        thread.messageCount = merged.length;
+        thread.updatedAt = timestamp;
+        affectedSiteId = thread.siteId || null;
+      });
+
+      if (!threadExists) {
+        throw new Error('Thread not found.');
+      }
+
+      if (affectedSiteId) {
+        await db.sites.update(affectedSiteId, { updatedAt: timestamp });
+      }
     });
-
-    if (thread.siteId) {
-      await db.sites.update(thread.siteId, { updatedAt: timestamp });
-    }
 
     return db.chatThreads.get(threadId);
   }
 
+  /** @deprecated Use thread APIs instead. */
   async function getChatsBySite({ siteId, url }) {
     const id = siteId || (url ? siteIdFromUrl(url) : '');
     if (!id) return [];
-    return db.chats.where('siteId').equals(id).reverse().sortBy('updatedAt');
+    const range = rangeBySiteAndUpdatedAt(id);
+    return db.chats
+      .where('[siteId+updatedAt]')
+      .between(range.lower, range.upper, true, true)
+      .reverse()
+      .toArray();
   }
 
   async function upsertNote({ noteId, siteId, url, markdown = '', sourceLinks = [], tags = [] }) {
@@ -230,7 +258,12 @@
   async function getNotesBySite({ siteId, url }) {
     const id = siteId || (url ? siteIdFromUrl(url) : '');
     if (!id) return [];
-    return db.notes.where('siteId').equals(id).reverse().sortBy('updatedAt');
+    const range = rangeBySiteAndUpdatedAt(id);
+    return db.notes
+      .where('[siteId+updatedAt]')
+      .between(range.lower, range.upper, true, true)
+      .reverse()
+      .toArray();
   }
 
   async function deleteNote(noteId) {
@@ -272,7 +305,12 @@
   async function getMarkersBySite({ siteId, url }) {
     const id = siteId || (url ? siteIdFromUrl(url) : '');
     if (!id) return [];
-    return db.markers.where('siteId').equals(id).reverse().sortBy('updatedAt');
+    const range = rangeBySiteAndUpdatedAt(id);
+    return db.markers
+      .where('[siteId+updatedAt]')
+      .between(range.lower, range.upper, true, true)
+      .reverse()
+      .toArray();
   }
 
   async function deleteMarker(markerId) {
@@ -306,15 +344,15 @@
       return normalizeTags(tags.map((tag) => (normalizeTag(tag) === source ? target : normalizeTag(tag))));
     };
 
-    await db.transaction('rw', db.sites, db.notes, async () => {
+    await db.transaction('rw', db.sites, db.markers, async () => {
       await db.sites.toCollection().modify((site) => {
         site.tags = updateTagArray(site.tags);
         site.updatedAt = nowIso();
       });
 
-      await db.notes.toCollection().modify((note) => {
-        note.tags = updateTagArray(note.tags);
-        note.updatedAt = nowIso();
+      await db.markers.toCollection().modify((marker) => {
+        marker.tags = updateTagArray(marker.tags);
+        marker.updatedAt = nowIso();
       });
     });
 
@@ -329,11 +367,11 @@
       return db.sites.where('tags').equals(normalized).toArray();
     }
 
-    if (entity === 'notes') {
-      return db.notes.where('tags').equals(normalized).toArray();
+    if (entity === 'markers') {
+      return db.markers.where('tags').equals(normalized).toArray();
     }
 
-    throw new Error('Unsupported entity. Use "sites" or "notes".');
+    throw new Error('Unsupported entity. Use "sites" or "markers".');
   }
 
   async function getSiteByUrl(url) {
