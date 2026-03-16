@@ -266,6 +266,11 @@
       .toArray();
   }
 
+  async function listNotes({ limit = 200 } = {}) {
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 200;
+    return db.notes.orderBy('updatedAt').reverse().limit(safeLimit).toArray();
+  }
+
   async function deleteNote(noteId) {
     if (!noteId) return false;
     await db.notes.delete(noteId);
@@ -387,6 +392,7 @@
     saveChat,
     getChatsBySite,
     upsertNote,
+    listNotes,
     getNotesBySite,
     deleteNote,
     upsertMarker,

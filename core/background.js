@@ -19,6 +19,7 @@ const DB_OPERATION_HANDLERS = Object.freeze({
   'thread.updateTitle': (repo, payload) => repo.updateThreadTitle(payload),
 
   'note.upsert': (repo, payload) => repo.upsertNote(payload),
+  'note.list': (repo, payload) => repo.listNotes(payload),
   'note.listBySite': (repo, payload) => repo.getNotesBySite(payload),
   'note.delete': (repo, payload) => repo.deleteNote(payload.noteId),
   'note.setTags': (repo, payload) => repo.setNoteTags(payload),

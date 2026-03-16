@@ -299,6 +299,7 @@
         const isAi = mode === 'ai';
         const isNotes = mode === 'notes';
         const isTranslate = !isAi && !isNotes;
+        const nextMode = isAi ? 'ai' : isNotes ? 'notes' : 'translate';
 
         modeTranslateBtn.classList.toggle('active', isTranslate);
         modeAiBtn.classList.toggle('active', isAi);
@@ -311,7 +312,10 @@
         aiWorkspace.classList.toggle('hidden', !isAi);
         notesWorkspace.classList.toggle('hidden', !isNotes);
 
-        chrome.storage.local.set({ workspaceMode: isAi ? 'ai' : isNotes ? 'notes' : 'translate' });
+        chrome.storage.local.set({ workspaceMode: nextMode });
+        window.dispatchEvent(new CustomEvent('deepl:workspaceModeChanged', {
+            detail: { mode: nextMode }
+        }));
     }
 
     // --- Settings Modal ---

@@ -3,7 +3,8 @@
   let activePageTitle = '';
   let currentNoteId = null;
   let currentSourceLinks = [];
-  let currentNotes = [];
+  let currentPageNotes = [];
+  let allNotes = [];
   let latestSelectedText = '';
   let autoSaveTimer = null;
   let isSaving = false;
@@ -103,6 +104,27 @@
     notesStatus.style.color = isError ? 'var(--error)' : 'var(--text-muted)';
   }
 
+  function setNotesViewMode({ notesLayout, notesBackBtn, mode }) {
+    if (!notesLayout) return;
+
+    const isListMode = mode === 'list';
+    const isEditingMode = mode === 'editing';
+
+    notesLayout.classList.toggle('list-only', isListMode);
+    notesLayout.classList.toggle('editing', isEditingMode);
+
+    if (notesBackBtn) {
+      notesBackBtn.classList.toggle('hidden', !isEditingMode);
+    }
+  }
+
+  function toggleSection(toggleButton, sectionBody) {
+    const isExpanded = toggleButton.getAttribute('aria-expanded') !== 'false';
+    const nextExpanded = !isExpanded;
+    toggleButton.setAttribute('aria-expanded', String(nextExpanded));
+    sectionBody.classList.toggle('hidden', !nextExpanded);
+  }
+
   async function getActivePageContext() {
     try {
       const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -131,18 +153,18 @@
     }
   }
 
-  function renderNotesList(notesListElement) {
+  function renderNotesList(notesListElement, notes, emptyText) {
     notesListElement.innerHTML = '';
 
-    if (!Array.isArray(currentNotes) || currentNotes.length === 0) {
+    if (!Array.isArray(notes) || notes.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'thread-item-meta';
-      empty.textContent = 'メモはまだありません。';
+      empty.textContent = emptyText;
       notesListElement.appendChild(empty);
       return;
     }
 
-    currentNotes.forEach((note) => {
+    notes.forEach((note) => {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = `notes-item ${note.noteId === currentNoteId ? 'active' : ''}`;
@@ -160,6 +182,15 @@
       item.appendChild(meta);
       notesListElement.appendChild(item);
     });
+  }
+
+  function renderAllLists(notesPageList, notesAllList) {
+    renderNotesList(notesPageList, currentPageNotes, 'このページのメモはまだありません。');
+    renderNotesList(notesAllList, allNotes, 'メモはまだありません。');
+  }
+
+  function findNoteById(noteId) {
+    return [...currentPageNotes, ...allNotes].find((note) => note.noteId === noteId) || null;
   }
 
   function clearEditor(markdownInput, tagsInput, notesPreview, notesDeleteBtn) {
@@ -180,19 +211,18 @@
     renderPreview(notesPreview, markdownInput.value);
   }
 
-  async function refreshNotes(notesListElement) {
-    if (!activePageUrl) {
-      currentNotes = [];
-      renderNotesList(notesListElement);
-      return;
-    }
+  async function refreshNotes({ notesPageList, notesAllList }) {
+    const [pageResponse, allResponse] = await Promise.all([
+      activePageUrl ? sendDbOp('note.listBySite', { url: activePageUrl }) : Promise.resolve({ success: true, data: [] }),
+      sendDbOp('note.list', { limit: 400 }),
+    ]);
 
-    const response = await sendDbOp('note.listBySite', { url: activePageUrl });
-    currentNotes = response?.success && Array.isArray(response.data) ? response.data : [];
-    renderNotesList(notesListElement);
+    currentPageNotes = pageResponse?.success && Array.isArray(pageResponse.data) ? pageResponse.data : [];
+    allNotes = allResponse?.success && Array.isArray(allResponse.data) ? allResponse.data : [];
+    renderAllLists(notesPageList, notesAllList);
   }
 
-  async function persistNote({ notesMarkdownInput, notesTagsInput, notesStatus, notesDeleteBtn, notesList, silent = false }) {
+  async function persistNote({ notesMarkdownInput, notesTagsInput, notesStatus, notesDeleteBtn, notesPageList, notesAllList, silent = false }) {
     const markdown = String(notesMarkdownInput.value || '').trim();
     if (!markdown || !activePageUrl || isSaving) {
       return false;
@@ -223,7 +253,7 @@
         setStatus(notesStatus, '自動保存しました。');
       }
 
-      await refreshNotes(notesList);
+      await refreshNotes({ notesPageList, notesAllList });
       return true;
     } catch (error) {
       setStatus(notesStatus, error?.message || '保存に失敗しました。', true);
@@ -233,7 +263,7 @@
     }
   }
 
-  function scheduleAutoSave({ notesMarkdownInput, notesTagsInput, notesStatus, notesDeleteBtn, notesList }) {
+  function scheduleAutoSave({ notesMarkdownInput, notesTagsInput, notesStatus, notesDeleteBtn, notesPageList, notesAllList }) {
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
     }
@@ -244,7 +274,8 @@
         notesTagsInput,
         notesStatus,
         notesDeleteBtn,
-        notesList,
+        notesPageList,
+        notesAllList,
         silent: true,
       }).catch(() => {});
     }, 700);
@@ -281,7 +312,15 @@
   }
 
   function init() {
-    const notesList = document.getElementById('notesList');
+    const notesLayout = document.getElementById('notesLayout');
+    const notesBackBtn = document.getElementById('notesBackBtn');
+    const notesPageSectionToggle = document.getElementById('notesPageSectionToggle');
+    const notesPageSectionBody = document.getElementById('notesPageSectionBody');
+    const notesAllSectionToggle = document.getElementById('notesAllSectionToggle');
+    const notesAllSectionBody = document.getElementById('notesAllSectionBody');
+    const notesPageList = document.getElementById('notesPageList');
+    const notesAllList = document.getElementById('notesAllList');
+    const notesEditorWrap = document.getElementById('notesEditorWrap');
     const notesMarkdownInput = document.getElementById('notesMarkdownInput');
     const notesPreview = document.getElementById('notesPreview');
     const notesSheetTitle = document.getElementById('notesSheetTitle');
@@ -291,9 +330,11 @@
     const notesInsertSelectionBtn = document.getElementById('notesInsertSelectionBtn');
     const notesDeleteBtn = document.getElementById('notesDeleteBtn');
 
-    if (!notesList || !notesMarkdownInput || !notesPreview || !notesSheetTitle || !notesTagsInput || !notesStatus || !notesNewBtn || !notesInsertSelectionBtn || !notesDeleteBtn) {
+    if (!notesLayout || !notesBackBtn || !notesPageSectionToggle || !notesPageSectionBody || !notesAllSectionToggle || !notesAllSectionBody || !notesPageList || !notesAllList || !notesEditorWrap || !notesMarkdownInput || !notesPreview || !notesSheetTitle || !notesTagsInput || !notesStatus || !notesNewBtn || !notesInsertSelectionBtn || !notesDeleteBtn) {
       return;
     }
+
+    setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
 
     setSingleSheetMode({
       notesSheetTitle,
@@ -311,7 +352,8 @@
         notesTagsInput,
         notesStatus,
         notesDeleteBtn,
-        notesList,
+        notesPageList,
+        notesAllList,
       });
     });
 
@@ -358,14 +400,34 @@
         notesTagsInput,
         notesStatus,
         notesDeleteBtn,
-        notesList,
+        notesPageList,
+        notesAllList,
+      });
+    });
+
+    notesPageSectionToggle.addEventListener('click', () => {
+      toggleSection(notesPageSectionToggle, notesPageSectionBody);
+    });
+
+    notesAllSectionToggle.addEventListener('click', () => {
+      toggleSection(notesAllSectionToggle, notesAllSectionBody);
+    });
+
+    notesBackBtn.addEventListener('click', () => {
+      setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
+      setSingleSheetMode({
+        notesSheetTitle,
+        notesMarkdownInput,
+        notesPreview,
+        isEditing: false,
       });
     });
 
     notesNewBtn.addEventListener('click', () => {
       clearEditor(notesMarkdownInput, notesTagsInput, notesPreview, notesDeleteBtn);
-      renderNotesList(notesList);
+      renderAllLists(notesPageList, notesAllList);
       setStatus(notesStatus, '新規メモを開始しました。');
+      setNotesViewMode({ notesLayout, notesBackBtn, mode: 'editing' });
       setSingleSheetMode({
         notesSheetTitle,
         notesMarkdownInput,
@@ -382,7 +444,8 @@
         notesTagsInput,
         notesStatus,
         notesDeleteBtn,
-        notesList,
+        notesPageList,
+        notesAllList,
       });
     });
 
@@ -401,34 +464,54 @@
         }
 
         clearEditor(notesMarkdownInput, notesTagsInput, notesPreview, notesDeleteBtn);
-        await refreshNotes(notesList);
+        await refreshNotes({ notesPageList, notesAllList });
         setStatus(notesStatus, 'メモを削除しました。');
+        setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
       } catch (error) {
         setStatus(notesStatus, error?.message || '削除に失敗しました。', true);
       }
     });
 
-    notesList.addEventListener('click', (event) => {
+    const handleNoteListClick = (event) => {
       const target = event.target.closest('.notes-item');
       if (!target) return;
 
       const noteId = target.dataset.noteId;
-      const note = currentNotes.find((item) => item.noteId === noteId);
+      const note = findNoteById(noteId);
       if (!note) return;
 
       openNote(note, notesMarkdownInput, notesTagsInput, notesPreview, notesDeleteBtn);
-      renderNotesList(notesList);
+      renderAllLists(notesPageList, notesAllList);
       setStatus(notesStatus, 'メモを読み込みました。');
+      setNotesViewMode({ notesLayout, notesBackBtn, mode: 'editing' });
       setSingleSheetMode({
         notesSheetTitle,
         notesMarkdownInput,
         notesPreview,
-        isEditing: false,
+        isEditing: true,
       });
-    });
+      notesMarkdownInput.focus();
+      notesMarkdownInput.setSelectionRange(notesMarkdownInput.value.length, notesMarkdownInput.value.length);
+    };
+
+    notesPageList.addEventListener('click', handleNoteListClick);
+    notesAllList.addEventListener('click', handleNoteListClick);
 
     window.addEventListener('deepl:selectedTextUpdated', (event) => {
       latestSelectedText = String(event.detail?.text || '').trim();
+    });
+
+    window.addEventListener('deepl:workspaceModeChanged', (event) => {
+      if (event?.detail?.mode === 'notes') {
+        setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
+        setSingleSheetMode({
+          notesSheetTitle,
+          notesMarkdownInput,
+          notesPreview,
+          isEditing: false,
+        });
+        refreshNotes({ notesPageList, notesAllList }).catch(() => {});
+      }
     });
 
     (async () => {
@@ -438,16 +521,18 @@
       latestSelectedText = String(context?.selectedText || '').trim();
 
       renderPreview(notesPreview, '');
+      setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
       setSingleSheetMode({
         notesSheetTitle,
         notesMarkdownInput,
         notesPreview,
         isEditing: false,
       });
-      await refreshNotes(notesList);
+      await refreshNotes({ notesPageList, notesAllList });
       setStatus(notesStatus, activePageUrl ? `Page: ${activePageTitle || activePageUrl}` : 'ページ情報を取得できませんでした。', !activePageUrl);
     })().catch(() => {
       renderPreview(notesPreview, '');
+      setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
       setSingleSheetMode({
         notesSheetTitle,
         notesMarkdownInput,
