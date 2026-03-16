@@ -4,6 +4,33 @@
 
 importScripts('../vendor/dexie.min.js', './db/repository.js');
 
+const DB_OPERATION_HANDLERS = Object.freeze({
+  'site.ensure': (repo, payload) => repo.ensureSite(payload),
+  'site.getByUrl': (repo, payload) => repo.getSiteByUrl(payload.url),
+  'site.setTags': (repo, payload) => repo.setSiteTags(payload),
+
+  'chat.save': (repo, payload) => repo.saveChat(payload),
+  'chat.listBySite': (repo, payload) => repo.getChatsBySite(payload),
+
+  'thread.create': (repo, payload) => repo.createThread(payload),
+  'thread.list': (repo, payload) => repo.listThreads(payload),
+  'thread.get': (repo, payload) => repo.getThread(payload.threadId),
+  'thread.append': (repo, payload) => repo.appendThreadMessages(payload),
+  'thread.updateTitle': (repo, payload) => repo.updateThreadTitle(payload),
+
+  'note.upsert': (repo, payload) => repo.upsertNote(payload),
+  'note.listBySite': (repo, payload) => repo.getNotesBySite(payload),
+  'note.delete': (repo, payload) => repo.deleteNote(payload.noteId),
+  'note.setTags': (repo, payload) => repo.setNoteTags(payload),
+
+  'marker.upsert': (repo, payload) => repo.upsertMarker(payload),
+  'marker.listBySite': (repo, payload) => repo.getMarkersBySite(payload),
+  'marker.delete': (repo, payload) => repo.deleteMarker(payload.markerId),
+
+  'tag.rename': (repo, payload) => repo.renameTag(payload),
+  'tag.search': (repo, payload) => repo.findByTag(payload),
+});
+
 // Open side panel when extension icon is clicked
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
@@ -41,97 +68,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'DB_OP') {
-    handleDbOperation(message.operation, message.payload)
+    handleDbOperation(message.operation, message.payload, sender)
       .then(result => sendResponse({ success: true, data: result }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
 });
 
-async function handleDbOperation(operation, payload = {}) {
+function validateDbSender(sender) {
+  if (sender?.id !== chrome.runtime.id) {
+    throw new Error('Unauthorized DB_OP sender.');
+  }
+}
+
+async function handleDbOperation(operation, payload = {}, sender) {
+  validateDbSender(sender);
+
   const repo = globalThis.ExtensionRepository;
 
   if (!repo) {
     throw new Error('Database repository is not initialized.');
   }
 
-  if (operation === 'site.ensure') {
-    return repo.ensureSite(payload);
+  const handler = DB_OPERATION_HANDLERS[operation];
+  if (typeof handler !== 'function') {
+    throw new Error(`Unsupported DB operation: ${operation}`);
   }
 
-  if (operation === 'site.getByUrl') {
-    return repo.getSiteByUrl(payload.url);
-  }
-
-  if (operation === 'site.setTags') {
-    return repo.setSiteTags(payload);
-  }
-
-  if (operation === 'chat.save') {
-    return repo.saveChat(payload);
-  }
-
-  if (operation === 'chat.listBySite') {
-    return repo.getChatsBySite(payload);
-  }
-
-  if (operation === 'thread.create') {
-    return repo.createThread(payload);
-  }
-
-  if (operation === 'thread.list') {
-    return repo.listThreads(payload);
-  }
-
-  if (operation === 'thread.get') {
-    return repo.getThread(payload.threadId);
-  }
-
-  if (operation === 'thread.append') {
-    return repo.appendThreadMessages(payload);
-  }
-
-  if (operation === 'thread.updateTitle') {
-    return repo.updateThreadTitle(payload);
-  }
-
-  if (operation === 'note.upsert') {
-    return repo.upsertNote(payload);
-  }
-
-  if (operation === 'note.listBySite') {
-    return repo.getNotesBySite(payload);
-  }
-
-  if (operation === 'note.delete') {
-    return repo.deleteNote(payload.noteId);
-  }
-
-  if (operation === 'note.setTags') {
-    return repo.setNoteTags(payload);
-  }
-
-  if (operation === 'marker.upsert') {
-    return repo.upsertMarker(payload);
-  }
-
-  if (operation === 'marker.listBySite') {
-    return repo.getMarkersBySite(payload);
-  }
-
-  if (operation === 'marker.delete') {
-    return repo.deleteMarker(payload.markerId);
-  }
-
-  if (operation === 'tag.rename') {
-    return repo.renameTag(payload);
-  }
-
-  if (operation === 'tag.search') {
-    return repo.findByTag(payload);
-  }
-
-  throw new Error(`Unsupported DB operation: ${operation}`);
+  return handler(repo, payload || {});
 }
 
 /**
