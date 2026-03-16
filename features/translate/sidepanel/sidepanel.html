@@ -34,6 +34,7 @@
   <div class="mode-switch" role="tablist" aria-label="Workspace mode">
     <button id="modeTranslateBtn" class="mode-btn active" role="tab" aria-selected="true">Translate</button>
     <button id="modeAiBtn" class="mode-btn" role="tab" aria-selected="false">Ask AI</button>
+    <button id="modeNotesBtn" class="mode-btn" role="tab" aria-selected="false">Notes</button>
   </div>
 
   <div id="translateWorkspace">
@@ -184,6 +185,42 @@
     </div>
   </div>
 
+  <div id="notesWorkspace" class="hidden">
+    <div class="notes-toolbar">
+      <button id="notesNewBtn" class="toolbar-btn" type="button">新規メモ</button>
+      <button id="notesInsertSelectionBtn" class="toolbar-btn" type="button">選択テキスト引用</button>
+      <button id="notesSaveBtn" class="toolbar-btn toolbar-btn-primary" type="button">保存</button>
+      <button id="notesDeleteBtn" class="toolbar-btn" type="button" disabled>削除</button>
+    </div>
+
+    <div class="notes-layout">
+      <aside class="notes-sidebar">
+        <div class="notes-sidebar-header">このページのメモ</div>
+        <div id="notesList" class="notes-list"></div>
+      </aside>
+
+      <section class="notes-editor-wrap">
+        <div class="notes-field-group">
+          <label for="notesTagsInput" class="notes-field-label">Tags (comma separated)</label>
+          <input id="notesTagsInput" class="notes-tags-input" type="text" placeholder="research, summary, todo">
+        </div>
+
+        <div class="notes-editor-grid">
+          <div class="notes-pane">
+            <div class="notes-pane-title">Markdown</div>
+            <textarea id="notesMarkdownInput" class="notes-markdown-input" placeholder="# Notes\n\nWrite your note here..."></textarea>
+          </div>
+          <div class="notes-pane">
+            <div class="notes-pane-title">Preview</div>
+            <div id="notesPreview" class="notes-preview"></div>
+          </div>
+        </div>
+
+        <div id="notesStatus" class="notes-status"></div>
+      </section>
+    </div>
+  </div>
+
   <!-- Settings Modal -->
   <div id="settingsModal" class="modal hidden">
     <div class="modal-overlay"></div>
@@ -255,6 +292,7 @@
   <script src="../../../vendor/markdown-it.min.js"></script>
   <script src="../../../vendor/markdown-it-multimd-table.min.js"></script>
   <script src="../../ai/sidepanel/ai-chat.js"></script>
+  <script src="../../notes/sidepanel/note-panel.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
