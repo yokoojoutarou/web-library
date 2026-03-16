@@ -5,6 +5,8 @@
   let currentSourceLinks = [];
   let currentNotes = [];
   let latestSelectedText = '';
+  let autoSaveTimer = null;
+  let isSaving = false;
 
   const markdownRenderer = typeof window.markdownit === 'function'
     ? window.markdownit({
@@ -166,6 +168,64 @@
     renderNotesList(notesListElement);
   }
 
+  async function persistNote({ notesMarkdownInput, notesTagsInput, notesStatus, notesDeleteBtn, notesList, silent = false }) {
+    const markdown = String(notesMarkdownInput.value || '').trim();
+    if (!markdown || !activePageUrl || isSaving) {
+      return false;
+    }
+
+    isSaving = true;
+
+    try {
+      const response = await sendDbOp('note.upsert', {
+        noteId: currentNoteId,
+        url: activePageUrl,
+        markdown,
+        sourceLinks: currentSourceLinks,
+        tags: parseTags(notesTagsInput.value),
+      });
+
+      if (!response?.success || !response.data) {
+        throw new Error(response?.error || 'Save failed.');
+      }
+
+      currentNoteId = response.data.noteId;
+      currentSourceLinks = Array.isArray(response.data.sourceLinks) ? response.data.sourceLinks : [];
+      notesDeleteBtn.disabled = false;
+
+      if (!silent) {
+        setStatus(notesStatus, 'メモを保存しました。');
+      } else {
+        setStatus(notesStatus, '自動保存しました。');
+      }
+
+      await refreshNotes(notesList);
+      return true;
+    } catch (error) {
+      setStatus(notesStatus, error?.message || '保存に失敗しました。', true);
+      return false;
+    } finally {
+      isSaving = false;
+    }
+  }
+
+  function scheduleAutoSave({ notesMarkdownInput, notesTagsInput, notesStatus, notesDeleteBtn, notesList }) {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+    }
+
+    autoSaveTimer = setTimeout(() => {
+      persistNote({
+        notesMarkdownInput,
+        notesTagsInput,
+        notesStatus,
+        notesDeleteBtn,
+        notesList,
+        silent: true,
+      }).catch(() => {});
+    }, 700);
+  }
+
   function appendSelectionQuote(markdownInput, notesPreview, notesStatus) {
     const selected = String(latestSelectedText || '').trim();
     if (!selected) {
@@ -204,16 +264,33 @@
     const notesStatus = document.getElementById('notesStatus');
     const notesNewBtn = document.getElementById('notesNewBtn');
     const notesInsertSelectionBtn = document.getElementById('notesInsertSelectionBtn');
-    const notesSaveBtn = document.getElementById('notesSaveBtn');
     const notesDeleteBtn = document.getElementById('notesDeleteBtn');
 
-    if (!notesList || !notesMarkdownInput || !notesPreview || !notesTagsInput || !notesStatus || !notesNewBtn || !notesInsertSelectionBtn || !notesSaveBtn || !notesDeleteBtn) {
+    if (!notesList || !notesMarkdownInput || !notesPreview || !notesTagsInput || !notesStatus || !notesNewBtn || !notesInsertSelectionBtn || !notesDeleteBtn) {
       return;
     }
 
     notesMarkdownInput.addEventListener('input', () => {
       renderPreview(notesPreview, notesMarkdownInput.value);
       setStatus(notesStatus, '編集中...');
+      scheduleAutoSave({
+        notesMarkdownInput,
+        notesTagsInput,
+        notesStatus,
+        notesDeleteBtn,
+        notesList,
+      });
+    });
+
+    notesTagsInput.addEventListener('input', () => {
+      setStatus(notesStatus, '編集中...');
+      scheduleAutoSave({
+        notesMarkdownInput,
+        notesTagsInput,
+        notesStatus,
+        notesDeleteBtn,
+        notesList,
+      });
     });
 
     notesNewBtn.addEventListener('click', () => {
@@ -224,45 +301,22 @@
 
     notesInsertSelectionBtn.addEventListener('click', () => {
       appendSelectionQuote(notesMarkdownInput, notesPreview, notesStatus);
-    });
-
-    notesSaveBtn.addEventListener('click', async () => {
-      const markdown = String(notesMarkdownInput.value || '').trim();
-      if (!markdown) {
-        setStatus(notesStatus, '空のメモは保存できません。', true);
-        return;
-      }
-
-      if (!activePageUrl) {
-        setStatus(notesStatus, 'ページURLが取得できません。', true);
-        return;
-      }
-
-      try {
-        const response = await sendDbOp('note.upsert', {
-          noteId: currentNoteId,
-          url: activePageUrl,
-          markdown,
-          sourceLinks: currentSourceLinks,
-          tags: parseTags(notesTagsInput.value),
-        });
-
-        if (!response?.success || !response.data) {
-          throw new Error(response?.error || 'Save failed.');
-        }
-
-        currentNoteId = response.data.noteId;
-        currentSourceLinks = Array.isArray(response.data.sourceLinks) ? response.data.sourceLinks : [];
-        notesDeleteBtn.disabled = false;
-        setStatus(notesStatus, 'メモを保存しました。');
-        await refreshNotes(notesList);
-      } catch (error) {
-        setStatus(notesStatus, error?.message || '保存に失敗しました。', true);
-      }
+      scheduleAutoSave({
+        notesMarkdownInput,
+        notesTagsInput,
+        notesStatus,
+        notesDeleteBtn,
+        notesList,
+      });
     });
 
     notesDeleteBtn.addEventListener('click', async () => {
       if (!currentNoteId) return;
+
+      if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+      }
 
       try {
         const response = await sendDbOp('note.delete', { noteId: currentNoteId });
