@@ -70,7 +70,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'DB_OP') {
     handleDbOperation(message.operation, message.payload, sender)
-      .then(result => sendResponse({ success: true, data: result }))
+      .then(result => {
+        const operation = String(message.operation || '');
+        if (operation === 'marker.upsert' || operation === 'marker.delete') {
+          chrome.runtime.sendMessage({
+            type: 'MARKER_UPDATED',
+          }).catch(() => {});
+        }
+        sendResponse({ success: true, data: result });
+      })
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
