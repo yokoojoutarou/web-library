@@ -82,10 +82,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
-
-  if (message.type === 'MARKER_UPDATED') {
-    chrome.runtime.sendMessage({ type: 'MARKER_UPDATED' }).catch(() => {});
-  }
 });
 
 function validateDbSender(sender) {

@@ -80,6 +80,10 @@
             .trim();
     }
 
+    function escapeRegExp(value) {
+        return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     function extractActiveElementSelection() {
         const active = document.activeElement;
         if (!active) return '';
@@ -378,6 +382,10 @@
                     return NodeFilter.FILTER_REJECT;
                 }
 
+                if (parent.closest('.deepl-marker-highlight,[contenteditable="true"]')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
                 if (parent.closest('script,style,noscript,textarea,input')) {
                     return NodeFilter.FILTER_REJECT;
                 }
@@ -624,21 +632,26 @@
             textNode = textWalker.nextNode();
         }
 
-        const compactText = normalizeText(mergedText);
-        const compactIndex = compactText.indexOf(normalizedQuote);
-        if (compactIndex < 0) {
+        const quoteTokens = normalizedQuote.split(/\s+/).filter(Boolean);
+        if (quoteTokens.length === 0) {
             return null;
         }
 
-        const beforeCompact = compactText.slice(0, compactIndex);
-        const beforeRawIndex = mergedText.indexOf(beforeCompact);
-        const quoteRawIndex = beforeRawIndex >= 0 ? beforeRawIndex + beforeCompact.length : mergedText.indexOf(quote);
+        const whitespaceTolerantPattern = quoteTokens
+            .map((token) => escapeRegExp(token))
+            .join('\\s+');
+        const regex = new RegExp(whitespaceTolerantPattern);
+        const match = regex.exec(mergedText);
+        if (!match) {
+            return null;
+        }
+
+        const quoteRawIndex = match.index;
+        const quoteRawEnd = Math.min(mergedText.length, quoteRawIndex + match[0].length);
 
         if (quoteRawIndex < 0) {
             return null;
         }
-
-        const quoteRawEnd = Math.min(mergedText.length, quoteRawIndex + quote.length);
 
         let startPoint = null;
         let endPoint = null;
@@ -999,8 +1012,4 @@
     ensureSelectionPalette();
     ensureMarkerActionMenu();
     restoreMarkersWithRetry().catch(() => {});
-
-    window.addEventListener('load', () => {
-        restoreMarkersWithRetry().catch(() => {});
-    }, { once: true });
 })();
