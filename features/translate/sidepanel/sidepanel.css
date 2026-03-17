@@ -203,6 +203,7 @@ body {
 
 .notes-section-toggle {
   flex: 1;
+  width: 100%;
   border: none;
   background: var(--accent-glow);
   color: var(--accent);

@@ -153,6 +153,29 @@
     }
   }
 
+  async function refreshActivePageContext({ notesStatus, notesPageList, notesAllList, reloadNotesOnUrlChange = false, updateStatus = false } = {}) {
+    const previousUrl = activePageUrl;
+    const context = await getActivePageContext();
+
+    activePageUrl = String(context?.url || '').trim();
+    activePageTitle = String(context?.title || '').trim();
+
+    if (typeof context?.selectedText === 'string') {
+      latestSelectedText = String(context.selectedText || '').trim();
+    }
+
+    if (updateStatus && notesStatus) {
+      setStatus(notesStatus, activePageUrl ? `Page: ${activePageTitle || activePageUrl}` : 'ページ情報を取得できませんでした。', !activePageUrl);
+    }
+
+    const urlChanged = previousUrl !== activePageUrl;
+    if (urlChanged && reloadNotesOnUrlChange && notesPageList && notesAllList) {
+      await refreshNotes({ notesPageList, notesAllList });
+    }
+
+    return urlChanged;
+  }
+
   function renderNotesList(notesListElement, notes, emptyText) {
     notesListElement.innerHTML = '';
 
@@ -165,10 +188,11 @@
     }
 
     notes.forEach((note) => {
-      const item = document.createElement('button');
-      item.type = 'button';
+      const item = document.createElement('div');
       item.className = `notes-item ${note.noteId === currentNoteId ? 'active' : ''}`;
       item.dataset.noteId = note.noteId;
+      item.setAttribute('role', 'button');
+      item.setAttribute('tabindex', '0');
 
       const main = document.createElement('div');
       main.className = 'notes-item-main';
@@ -416,6 +440,10 @@
       });
     });
 
+    notesPreview.setAttribute('role', 'button');
+    notesPreview.setAttribute('tabindex', '0');
+    notesPreview.setAttribute('aria-label', 'プレビューを編集モードで開く');
+
     notesPreview.addEventListener('click', () => {
       setSingleSheetMode({
         notesSheetTitle,
@@ -425,6 +453,12 @@
       });
       notesMarkdownInput.focus();
       notesMarkdownInput.setSelectionRange(notesMarkdownInput.value.length, notesMarkdownInput.value.length);
+    });
+
+    notesPreview.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      notesPreview.click();
     });
 
     notesTagsInput.addEventListener('input', () => {
@@ -520,14 +554,30 @@
       notesMarkdownInput.setSelectionRange(notesMarkdownInput.value.length, notesMarkdownInput.value.length);
     };
 
+    const handleNoteListKeydown = (event) => {
+      const target = event.target.closest('.notes-item');
+      if (!target) return;
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      target.click();
+    };
+
     notesPageList.addEventListener('click', handleNoteListClick);
     notesAllList.addEventListener('click', handleNoteListClick);
+    notesPageList.addEventListener('keydown', handleNoteListKeydown);
+    notesAllList.addEventListener('keydown', handleNoteListKeydown);
 
     window.addEventListener('deepl:selectedTextUpdated', (event) => {
       latestSelectedText = String(event.detail?.text || '').trim();
+      refreshActivePageContext({
+        notesStatus,
+        notesPageList,
+        notesAllList,
+        reloadNotesOnUrlChange: true,
+      }).catch(() => {});
     });
 
-    window.addEventListener('deepl:workspaceModeChanged', (event) => {
+    window.addEventListener('deepl:workspaceModeChanged', async (event) => {
       if (event?.detail?.mode === 'notes') {
         setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
         setSingleSheetMode({
@@ -536,15 +586,31 @@
           notesPreview,
           isEditing: false,
         });
-        refreshNotes({ notesPageList, notesAllList }).catch(() => {});
+
+        try {
+          const urlChanged = await refreshActivePageContext({
+            notesStatus,
+            notesPageList,
+            notesAllList,
+            reloadNotesOnUrlChange: true,
+            updateStatus: true,
+          });
+          if (!urlChanged) {
+            await refreshNotes({ notesPageList, notesAllList });
+          }
+        } catch {
+          refreshNotes({ notesPageList, notesAllList }).catch(() => {});
+        }
       }
     });
 
     (async () => {
-      const context = await getActivePageContext();
-      activePageUrl = String(context?.url || '').trim();
-      activePageTitle = String(context?.title || '').trim();
-      latestSelectedText = String(context?.selectedText || '').trim();
+      await refreshActivePageContext({
+        notesStatus,
+        notesPageList,
+        notesAllList,
+        updateStatus: true,
+      });
 
       renderPreview(notesPreview, '');
       setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
@@ -555,7 +621,6 @@
         isEditing: false,
       });
       await refreshNotes({ notesPageList, notesAllList });
-      setStatus(notesStatus, activePageUrl ? `Page: ${activePageTitle || activePageUrl}` : 'ページ情報を取得できませんでした。', !activePageUrl);
     })().catch(() => {
       renderPreview(notesPreview, '');
       setNotesViewMode({ notesLayout, notesBackBtn, mode: 'list' });
