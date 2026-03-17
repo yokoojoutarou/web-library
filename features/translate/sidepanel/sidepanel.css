@@ -197,6 +197,23 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+}
+
+.marker-item:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-dim);
+}
+
+.marker-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.marker-item:active {
+  transform: translateY(1px);
 }
 
 .marker-item-main {
@@ -229,6 +246,7 @@ body {
 .marker-item-actions {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .marker-action-btn {

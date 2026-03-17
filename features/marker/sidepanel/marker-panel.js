@@ -93,6 +93,10 @@
       const item = document.createElement('div');
       item.className = 'marker-item';
       item.dataset.markerId = marker.markerId;
+      item.dataset.action = 'jump';
+      item.setAttribute('role', 'button');
+      item.setAttribute('tabindex', '0');
+      item.setAttribute('aria-label', 'ページ内でマーカーへ移動');
 
       const main = document.createElement('div');
       main.className = 'marker-item-main';
@@ -109,15 +113,6 @@
       const actions = document.createElement('div');
       actions.className = 'marker-item-actions';
 
-      const jumpBtn = document.createElement('button');
-      jumpBtn.type = 'button';
-      jumpBtn.className = 'marker-action-btn';
-      jumpBtn.title = 'ページ内で表示';
-      jumpBtn.setAttribute('aria-label', 'ページ内で表示');
-      jumpBtn.dataset.action = 'jump';
-      jumpBtn.dataset.markerId = marker.markerId;
-      jumpBtn.textContent = '↗';
-
       const deleteBtn = document.createElement('button');
       deleteBtn.type = 'button';
       deleteBtn.className = 'marker-action-btn';
@@ -129,7 +124,6 @@
 
       main.appendChild(text);
       main.appendChild(meta);
-      actions.appendChild(jumpBtn);
       actions.appendChild(deleteBtn);
       item.appendChild(main);
       item.appendChild(actions);
@@ -188,7 +182,17 @@
     });
 
     markersList.addEventListener('click', async (event) => {
+      const markerItem = event.target.closest('.marker-item[data-action="jump"]');
       const button = event.target.closest('button[data-action]');
+
+      if (!button && markerItem) {
+        const markerId = markerItem.dataset.markerId;
+        if (!markerId) return;
+        await notifyContent('MARKER_SCROLL_TO', markerId);
+        setStatus(markersStatus, 'ページ上のマーカーへ移動しました。');
+        return;
+      }
+
       if (!button) return;
 
       const markerId = button.dataset.markerId;
@@ -212,6 +216,21 @@
         await refreshMarkers({ markersList, markersStatus });
         setStatus(markersStatus, 'マーカーを削除しました。');
       }
+    });
+
+    markersList.addEventListener('keydown', async (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (event.target.closest('button[data-action]')) return;
+
+      const markerItem = event.target.closest('.marker-item[data-action="jump"]');
+      if (!markerItem) return;
+
+      event.preventDefault();
+      const markerId = markerItem.dataset.markerId;
+      if (!markerId) return;
+
+      await notifyContent('MARKER_SCROLL_TO', markerId);
+      setStatus(markersStatus, 'ページ上のマーカーへ移動しました。');
     });
 
     window.addEventListener('deepl:workspaceModeChanged', (event) => {
