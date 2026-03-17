@@ -35,6 +35,7 @@
     <button id="modeTranslateBtn" class="mode-btn active" role="tab" aria-selected="true">Translate</button>
     <button id="modeAiBtn" class="mode-btn" role="tab" aria-selected="false">Ask AI</button>
     <button id="modeNotesBtn" class="mode-btn" role="tab" aria-selected="false">Notes</button>
+    <button id="modeMarkersBtn" class="mode-btn" role="tab" aria-selected="false">Markers</button>
   </div>
 
   <div id="translateWorkspace">
@@ -233,6 +234,21 @@
     </div>
   </div>
 
+  <div id="markersWorkspace" class="hidden">
+    <div class="markers-layout">
+      <div class="markers-toolbar">
+        <button id="markersRefreshBtn" class="toolbar-btn" type="button">再読み込み</button>
+      </div>
+
+      <div class="markers-section">
+        <div class="markers-section-title">このページのマーカー</div>
+        <div id="markersList" class="markers-list"></div>
+      </div>
+
+      <div id="markersStatus" class="notes-status"></div>
+    </div>
+  </div>
+
   <!-- Settings Modal -->
   <div id="settingsModal" class="modal hidden">
     <div class="modal-overlay"></div>
@@ -305,6 +321,7 @@
   <script src="../../../vendor/markdown-it-multimd-table.min.js"></script>
   <script src="../../ai/sidepanel/ai-chat.js"></script>
   <script src="../../notes/sidepanel/note-panel.js"></script>
+  <script src="../../marker/sidepanel/marker-panel.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

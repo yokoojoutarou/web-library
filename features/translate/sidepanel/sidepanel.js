@@ -31,9 +31,11 @@
     const modeTranslateBtn = document.getElementById('modeTranslateBtn');
     const modeAiBtn = document.getElementById('modeAiBtn');
     const modeNotesBtn = document.getElementById('modeNotesBtn');
+    const modeMarkersBtn = document.getElementById('modeMarkersBtn');
     const translateWorkspace = document.getElementById('translateWorkspace');
     const aiWorkspace = document.getElementById('aiWorkspace');
     const notesWorkspace = document.getElementById('notesWorkspace');
+    const markersWorkspace = document.getElementById('markersWorkspace');
 
     let isTranslating = false;
     let translateDebounce = null;
@@ -78,7 +80,7 @@
         });
 
         const workspaceMode = settings.workspaceMode;
-        if (workspaceMode === 'ai' || workspaceMode === 'notes') {
+        if (workspaceMode === 'ai' || workspaceMode === 'notes' || workspaceMode === 'markers') {
             applyWorkspaceMode(workspaceMode);
         } else {
             applyWorkspaceMode('translate');
@@ -90,6 +92,10 @@
 
         if (window.NoteFeature && typeof window.NoteFeature.init === 'function') {
             window.NoteFeature.init();
+        }
+
+        if (window.MarkerFeature && typeof window.MarkerFeature.init === 'function') {
+            window.MarkerFeature.init();
         }
 
         // Check if API key is set; if not, show settings modal
@@ -254,6 +260,10 @@
         applyWorkspaceMode('notes');
     });
 
+    modeMarkersBtn.addEventListener('click', () => {
+        applyWorkspaceMode('markers');
+    });
+
     autoTranslate.addEventListener('change', () => {
         chrome.storage.local.set({ autoTranslate: autoTranslate.checked });
     });
@@ -298,19 +308,23 @@
     function applyWorkspaceMode(mode) {
         const isAi = mode === 'ai';
         const isNotes = mode === 'notes';
-        const isTranslate = !isAi && !isNotes;
-        const nextMode = isAi ? 'ai' : isNotes ? 'notes' : 'translate';
+        const isMarkers = mode === 'markers';
+        const isTranslate = !isAi && !isNotes && !isMarkers;
+        const nextMode = isAi ? 'ai' : isNotes ? 'notes' : isMarkers ? 'markers' : 'translate';
 
         modeTranslateBtn.classList.toggle('active', isTranslate);
         modeAiBtn.classList.toggle('active', isAi);
         modeNotesBtn.classList.toggle('active', isNotes);
+        modeMarkersBtn.classList.toggle('active', isMarkers);
         modeTranslateBtn.setAttribute('aria-selected', String(isTranslate));
         modeAiBtn.setAttribute('aria-selected', String(isAi));
         modeNotesBtn.setAttribute('aria-selected', String(isNotes));
+        modeMarkersBtn.setAttribute('aria-selected', String(isMarkers));
 
         translateWorkspace.classList.toggle('hidden', !isTranslate);
         aiWorkspace.classList.toggle('hidden', !isAi);
         notesWorkspace.classList.toggle('hidden', !isNotes);
+        markersWorkspace.classList.toggle('hidden', !isMarkers);
 
         chrome.storage.local.set({ workspaceMode: nextMode });
         window.dispatchEvent(new CustomEvent('deepl:workspaceModeChanged', {
