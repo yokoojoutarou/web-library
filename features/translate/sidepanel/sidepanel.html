@@ -34,6 +34,7 @@
   <div class="mode-switch" role="tablist" aria-label="Workspace mode">
     <button id="modeTranslateBtn" class="mode-btn active" role="tab" aria-selected="true">Translate</button>
     <button id="modeAiBtn" class="mode-btn" role="tab" aria-selected="false">Ask AI</button>
+    <button id="modeNotesBtn" class="mode-btn" role="tab" aria-selected="false">Notes</button>
   </div>
 
   <div id="translateWorkspace">
@@ -184,6 +185,54 @@
     </div>
   </div>
 
+  <div id="notesWorkspace" class="hidden">
+    <div id="notesLayout" class="notes-layout">
+      <aside class="notes-sidebar">
+        <button id="notesNewBtn" class="notes-new-btn notes-new-btn-top" type="button">+ 新規作成</button>
+
+        <div class="notes-section">
+          <button id="notesPageSectionToggle" class="notes-section-toggle" type="button" aria-expanded="true">
+            <span>このページのメモ</span>
+            <span class="notes-section-caret">▾</span>
+          </button>
+          <div id="notesPageSectionBody" class="notes-section-body">
+            <div id="notesPageList" class="notes-list"></div>
+          </div>
+        </div>
+
+        <div class="notes-section">
+          <button id="notesAllSectionToggle" class="notes-section-toggle" type="button" aria-expanded="true">
+            <span>すべてのメモ</span>
+            <span class="notes-section-caret">▾</span>
+          </button>
+          <div id="notesAllSectionBody" class="notes-section-body">
+            <div id="notesAllList" class="notes-list"></div>
+          </div>
+        </div>
+      </aside>
+
+      <section id="notesEditorWrap" class="notes-editor-wrap">
+        <div class="notes-editor-actions">
+          <button id="notesBackBtn" class="toolbar-btn" type="button">← 戻る</button>
+          <button id="notesInsertSelectionBtn" class="toolbar-btn" type="button">選択テキスト引用</button>
+        </div>
+
+        <div class="notes-field-group">
+          <label for="notesTagsInput" class="notes-field-label">Tags (comma separated)</label>
+          <input id="notesTagsInput" class="notes-tags-input" type="text" placeholder="research, summary, todo">
+        </div>
+
+        <div id="notesSheet" class="notes-pane notes-sheet">
+          <div id="notesSheetTitle" class="notes-pane-title">Preview</div>
+          <textarea id="notesMarkdownInput" class="notes-markdown-input hidden" placeholder="# Notes\n\nWrite your note here..."></textarea>
+          <div id="notesPreview" class="notes-preview"></div>
+        </div>
+
+        <div id="notesStatus" class="notes-status"></div>
+      </section>
+    </div>
+  </div>
+
   <!-- Settings Modal -->
   <div id="settingsModal" class="modal hidden">
     <div class="modal-overlay"></div>
@@ -255,6 +304,7 @@
   <script src="../../../vendor/markdown-it.min.js"></script>
   <script src="../../../vendor/markdown-it-multimd-table.min.js"></script>
   <script src="../../ai/sidepanel/ai-chat.js"></script>
+  <script src="../../notes/sidepanel/note-panel.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

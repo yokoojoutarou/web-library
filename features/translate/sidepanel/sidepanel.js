@@ -30,8 +30,10 @@
     const detectedLang = document.getElementById('detectedLang');
     const modeTranslateBtn = document.getElementById('modeTranslateBtn');
     const modeAiBtn = document.getElementById('modeAiBtn');
+    const modeNotesBtn = document.getElementById('modeNotesBtn');
     const translateWorkspace = document.getElementById('translateWorkspace');
     const aiWorkspace = document.getElementById('aiWorkspace');
+    const notesWorkspace = document.getElementById('notesWorkspace');
 
     let isTranslating = false;
     let translateDebounce = null;
@@ -75,10 +77,19 @@
             selectedModel: aiModels[aiProvider],
         });
 
-        applyWorkspaceMode(settings.workspaceMode === 'ai' ? 'ai' : 'translate');
+        const workspaceMode = settings.workspaceMode;
+        if (workspaceMode === 'ai' || workspaceMode === 'notes') {
+            applyWorkspaceMode(workspaceMode);
+        } else {
+            applyWorkspaceMode('translate');
+        }
 
         if (window.AIChatFeature && typeof window.AIChatFeature.init === 'function') {
             window.AIChatFeature.init();
+        }
+
+        if (window.NoteFeature && typeof window.NoteFeature.init === 'function') {
+            window.NoteFeature.init();
         }
 
         // Check if API key is set; if not, show settings modal
@@ -239,6 +250,10 @@
         applyWorkspaceMode('ai');
     });
 
+    modeNotesBtn.addEventListener('click', () => {
+        applyWorkspaceMode('notes');
+    });
+
     autoTranslate.addEventListener('change', () => {
         chrome.storage.local.set({ autoTranslate: autoTranslate.checked });
     });
@@ -282,16 +297,25 @@
 
     function applyWorkspaceMode(mode) {
         const isAi = mode === 'ai';
+        const isNotes = mode === 'notes';
+        const isTranslate = !isAi && !isNotes;
+        const nextMode = isAi ? 'ai' : isNotes ? 'notes' : 'translate';
 
-        modeTranslateBtn.classList.toggle('active', !isAi);
+        modeTranslateBtn.classList.toggle('active', isTranslate);
         modeAiBtn.classList.toggle('active', isAi);
-        modeTranslateBtn.setAttribute('aria-selected', String(!isAi));
+        modeNotesBtn.classList.toggle('active', isNotes);
+        modeTranslateBtn.setAttribute('aria-selected', String(isTranslate));
         modeAiBtn.setAttribute('aria-selected', String(isAi));
+        modeNotesBtn.setAttribute('aria-selected', String(isNotes));
 
-        translateWorkspace.classList.toggle('hidden', isAi);
+        translateWorkspace.classList.toggle('hidden', !isTranslate);
         aiWorkspace.classList.toggle('hidden', !isAi);
+        notesWorkspace.classList.toggle('hidden', !isNotes);
 
-        chrome.storage.local.set({ workspaceMode: isAi ? 'ai' : 'translate' });
+        chrome.storage.local.set({ workspaceMode: nextMode });
+        window.dispatchEvent(new CustomEvent('deepl:workspaceModeChanged', {
+            detail: { mode: nextMode }
+        }));
     }
 
     // --- Settings Modal ---
