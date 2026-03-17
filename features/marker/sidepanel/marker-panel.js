@@ -28,6 +28,27 @@
     return normalized || 'Unknown';
   }
 
+  function sortMarkersByPageOrder(markers) {
+    return [...markers].sort((a, b) => {
+      const aStart = Number(a?.rangeDescriptor?.start);
+      const bStart = Number(b?.rangeDescriptor?.start);
+      const aHasStart = Number.isFinite(aStart);
+      const bHasStart = Number.isFinite(bStart);
+
+      if (aHasStart && bHasStart && aStart !== bStart) {
+        return aStart - bStart;
+      }
+
+      if (aHasStart !== bHasStart) {
+        return aHasStart ? -1 : 1;
+      }
+
+      const aUpdated = String(a?.updatedAt || '');
+      const bUpdated = String(b?.updatedAt || '');
+      return aUpdated.localeCompare(bUpdated);
+    });
+  }
+
   async function getActivePageContext() {
     try {
       const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -143,7 +164,9 @@
     }
 
     const response = await sendDbOp('marker.listBySite', { url: activePageUrl });
-    currentMarkers = response?.success && Array.isArray(response.data) ? response.data : [];
+    currentMarkers = response?.success && Array.isArray(response.data)
+      ? sortMarkersByPageOrder(response.data)
+      : [];
     renderMarkerList(markersList, currentMarkers);
     setStatus(markersStatus, `Page: ${activePageTitle || activePageUrl}`);
   }
