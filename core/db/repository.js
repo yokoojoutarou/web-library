@@ -240,6 +240,46 @@
     };
   }
 
+  async function moveFolder({ folderId, targetParentFolderId = null }) {
+    if (!folderId) {
+      throw new Error('folderId is required.');
+    }
+
+    const source = await db.folders.get(folderId);
+    if (!source) {
+      throw new Error('Folder not found.');
+    }
+
+    const nextParentId = targetParentFolderId || null;
+    if (nextParentId === folderId) {
+      throw new Error('A folder cannot be moved into itself.');
+    }
+
+    if (nextParentId) {
+      const targetParent = await db.folders.get(nextParentId);
+      if (!targetParent) {
+        throw new Error('Target parent folder not found.');
+      }
+
+      let cursor = targetParent;
+      while (cursor) {
+        if (cursor.folderId === folderId) {
+          throw new Error('A folder cannot be moved into its descendant.');
+        }
+        if (!cursor.parentFolderId) break;
+        cursor = await db.folders.get(cursor.parentFolderId);
+      }
+    }
+
+    const timestamp = nowIso();
+    await db.folders.update(folderId, {
+      parentFolderId: nextParentId,
+      updatedAt: timestamp,
+    });
+
+    return db.folders.get(folderId);
+  }
+
   async function moveSiteToFolder({ siteId, url, title = '', targetFolderId = null }) {
     const timestamp = nowIso();
     let resolvedSiteId = siteId || '';
@@ -271,6 +311,65 @@
     await db.siteFolders.put(link);
     await db.sites.update(resolvedSiteId, { updatedAt: timestamp });
     return { ...link };
+  }
+
+  async function createSiteFolderFromSite({ siteId, url, title = '', parentFolderId = null }) {
+    let resolvedSite = null;
+
+    if (siteId) {
+      resolvedSite = await db.sites.get(siteId);
+      if (!resolvedSite) {
+        throw new Error('Site not found.');
+      }
+    } else {
+      if (!url) {
+        throw new Error('siteId or url is required.');
+      }
+      resolvedSite = await ensureSite({ url, title });
+    }
+
+    const normalizedTitle = normalizeFolderName(title || resolvedSite.title || '');
+    if (!normalizedTitle && url) {
+      await ensureSite({ url, title: String(url || '') });
+      resolvedSite = await db.sites.get(resolvedSite.siteId);
+    }
+
+    if (!resolvedSite?.siteId) {
+      throw new Error('Failed to resolve site for folder creation.');
+    }
+
+    const existingLink = await db.siteFolders.get(resolvedSite.siteId);
+    if (existingLink?.folderId) {
+      const existingFolder = await db.folders.get(existingLink.folderId);
+      if (existingFolder) {
+        return {
+          created: false,
+          folder: { ...existingFolder },
+          link: { ...existingLink },
+          site: { ...resolvedSite },
+        };
+      }
+    }
+
+    const folderName = normalizeFolderName(
+      resolvedSite.title || title || resolvedSite.url || 'Untitled Site'
+    );
+    const folder = await createFolder({
+      name: folderName || 'Untitled Site',
+      parentFolderId,
+    });
+
+    const link = await moveSiteToFolder({
+      siteId: resolvedSite.siteId,
+      targetFolderId: folder.folderId,
+    });
+
+    return {
+      created: true,
+      folder,
+      link,
+      site: { ...resolvedSite },
+    };
   }
 
   async function listLibrarySites({ folderId = null, query = '', limit = 500 } = {}) {
@@ -656,9 +755,11 @@
     appendThreadMessages,
     createFolder,
     renameFolder,
+    moveFolder,
     deleteFolder,
     listFolders,
     moveSiteToFolder,
+    createSiteFolderFromSite,
     listLibrarySites,
   };
 })(globalThis);

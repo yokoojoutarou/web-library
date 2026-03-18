@@ -30,9 +30,11 @@ const DB_OPERATION_HANDLERS = Object.freeze({
 
   'folder.create': (repo, payload) => repo.createFolder(payload),
   'folder.rename': (repo, payload) => repo.renameFolder(payload),
+  'folder.move': (repo, payload) => repo.moveFolder(payload),
   'folder.delete': (repo, payload) => repo.deleteFolder(payload),
   'folder.list': (repo, payload) => repo.listFolders(payload),
 
+  'library.createSiteFolder': (repo, payload) => repo.createSiteFolderFromSite(payload),
   'library.moveSite': (repo, payload) => repo.moveSiteToFolder(payload),
   'library.listSites': (repo, payload) => repo.listLibrarySites(payload),
 

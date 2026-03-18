@@ -252,22 +252,12 @@
 
   <div id="libraryWorkspace" class="hidden">
     <div class="library-layout">
-      <aside class="library-sidebar">
-        <div class="library-sidebar-head">
-          <div class="library-title">Folders</div>
-          <button id="libraryAddFolderBtn" class="toolbar-btn" type="button">+ 作成</button>
-        </div>
-        <div id="libraryTree" class="library-tree"></div>
-      </aside>
-
-      <section class="library-content">
-        <div class="library-content-head">
-          <div id="libraryCurrentFolder" class="library-current-folder">未分類</div>
-          <input id="librarySearchInput" class="library-search-input" type="search" placeholder="タイトル・URL・メモで検索">
-        </div>
-        <div id="librarySiteList" class="library-site-list"></div>
-        <div id="libraryStatus" class="notes-status"></div>
-      </section>
+      <div class="library-toolbar">
+        <div class="library-title">Explorer</div>
+        <input id="librarySearchInput" class="library-search-input" type="search" placeholder="タイトル・URL・メモで検索">
+      </div>
+      <div id="libraryExplorer" class="library-explorer"></div>
+      <div id="libraryStatus" class="notes-status"></div>
     </div>
   </div>
 
