@@ -372,6 +372,15 @@
     };
   }
 
+  async function ensureSiteFolderForSite({ siteId, url, title = '' }) {
+    return createSiteFolderFromSite({
+      siteId,
+      url,
+      title,
+      parentFolderId: null,
+    });
+  }
+
   async function listLibrarySites({ folderId = null, query = '', limit = 500 } = {}) {
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 500;
     const normalizedQuery = String(query || '').trim().toLowerCase();
@@ -644,14 +653,21 @@
       .toArray();
   }
 
-  async function upsertNote({ noteId, siteId, url, markdown = '', sourceLinks = [], tags = [] }) {
+  async function upsertNote({ noteId, siteId, url, title = '', markdown = '', sourceLinks = [], tags = [] }) {
     const timestamp = nowIso();
-    const id = siteId || (url ? siteIdFromUrl(url) : '');
+    let id = siteId || (url ? siteIdFromUrl(url) : '');
     if (!id) throw new Error('siteId or url is required.');
 
     if (url) {
-      await ensureSite({ url });
+      const site = await ensureSite({ url, title });
+      id = site.siteId;
     }
+
+    await ensureSiteFolderForSite({
+      siteId: id,
+      url,
+      title,
+    });
 
     const resolvedNoteId = noteId || global.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const existing = await db.notes.get(resolvedNoteId);
@@ -693,15 +709,22 @@
     return true;
   }
 
-  async function upsertMarker({ markerId, siteId, url, color, rangeDescriptor, domLocator, textQuote = '', tags = [] }) {
+  async function upsertMarker({ markerId, siteId, url, title = '', color, rangeDescriptor, domLocator, textQuote = '', tags = [] }) {
     const timestamp = nowIso();
-    const id = siteId || (url ? siteIdFromUrl(url) : '');
+    let id = siteId || (url ? siteIdFromUrl(url) : '');
     if (!id) throw new Error('siteId or url is required.');
     if (!color) throw new Error('color is required.');
 
     if (url) {
-      await ensureSite({ url });
+      const site = await ensureSite({ url, title });
+      id = site.siteId;
     }
+
+    await ensureSiteFolderForSite({
+      siteId: id,
+      url,
+      title,
+    });
 
     const resolvedMarkerId = markerId || global.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const existing = await db.markers.get(resolvedMarkerId);

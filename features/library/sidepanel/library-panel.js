@@ -230,7 +230,6 @@
     folderTree = Array.isArray(folderResponse.data?.tree) ? folderResponse.data.tree : [];
 
     if (!hasInitializedCollapseState) {
-      collapsedFolderIds.add('');
       folderFlatList.forEach((folder) => {
         collapsedFolderIds.add(normalizeFolderId(folder.folderId));
       });
@@ -277,14 +276,14 @@
       rootNotes.forEach((note) => {
         libraryExplorer.appendChild(createNoteEntry({ note, depth: 1 }));
       });
-    }
 
-    for (const folderNode of folderTree) {
-      await renderFolderWithChildren({
-        parentNode: folderNode,
-        depth: 0,
-        explorerElement: libraryExplorer,
-      });
+      for (const folderNode of folderTree) {
+        await renderFolderWithChildren({
+          parentNode: folderNode,
+          depth: 1,
+          explorerElement: libraryExplorer,
+        });
+      }
     }
 
     setStatus(

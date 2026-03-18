@@ -270,6 +270,7 @@
       const response = await sendDbOp('note.upsert', {
         noteId: currentNoteId,
         url: activePageUrl,
+        title: activePageTitle,
         markdown,
         sourceLinks: currentSourceLinks,
         tags: parseTags(notesTagsInput.value),
