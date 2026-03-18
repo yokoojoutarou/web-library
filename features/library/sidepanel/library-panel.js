@@ -63,6 +63,8 @@
     row.className = 'library-entry library-entry-note';
     row.dataset.entryType = 'note';
     row.dataset.noteId = note.noteId;
+    row.dataset.siteId = note.siteId;
+    row.draggable = true;
     row.style.marginLeft = `${Math.max(0, depth) * 14}px`;
 
     const main = document.createElement('div');
@@ -163,18 +165,6 @@
     addWrap.appendChild(addBtn);
     addWrap.appendChild(menu);
     actions.appendChild(addWrap);
-
-    if (!isRoot) {
-      const deleteBtn = document.createElement('button');
-      deleteBtn.type = 'button';
-      deleteBtn.className = 'library-icon-btn';
-      deleteBtn.dataset.action = 'delete-folder';
-      deleteBtn.dataset.folderId = normalizedFolderId;
-      deleteBtn.dataset.folderName = name;
-      deleteBtn.title = 'フォルダを削除';
-      deleteBtn.textContent = '🗑';
-      actions.appendChild(deleteBtn);
-    }
 
     row.appendChild(main);
     row.appendChild(actions);
@@ -331,8 +321,11 @@
 
   function clearDropTargetHighlights(container) {
     container
-      .querySelectorAll('.library-drop-target')
-      .forEach((el) => el.classList.remove('library-drop-target'));
+      .querySelectorAll('.library-drop-target, .library-trash-drop-target')
+      .forEach((el) => {
+        el.classList.remove('library-drop-target');
+        el.classList.remove('library-trash-drop-target');
+      });
   }
 
   function closestFolderTarget(event) {
@@ -411,6 +404,25 @@
       return;
     }
 
+    if (dragPayload.type === 'note') {
+      const siteId = String(dragPayload.siteId || '').trim();
+      if (!siteId) return;
+
+      const response = await sendDbOp('library.moveSite', {
+        siteId,
+        targetFolderId,
+      });
+
+      if (!response?.success) {
+        setStatus(libraryStatus, response?.error || 'メモ移動に失敗しました。', true);
+        return;
+      }
+
+      await refreshLibraryData(elements);
+      setStatus(libraryStatus, 'メモを移動しました。');
+      return;
+    }
+
     if (dragPayload.type === 'folder') {
       if (!dragPayload.folderId) return;
 
@@ -429,13 +441,59 @@
     }
   }
 
+  async function handleDropOnTrash({ libraryStatus, elements }) {
+    if (!dragPayload) return;
+
+    if (dragPayload.type === 'folder') {
+      const folderId = String(dragPayload.folderId || '').trim();
+      if (!folderId) return;
+      const response = await sendDbOp('folder.delete', { folderId });
+      if (!response?.success) {
+        setStatus(libraryStatus, response?.error || 'フォルダ削除に失敗しました。', true);
+        return;
+      }
+
+      await refreshLibraryData(elements);
+      setStatus(libraryStatus, 'フォルダを削除しました。');
+      return;
+    }
+
+    if (dragPayload.type === 'site') {
+      const siteId = String(dragPayload.siteId || '').trim();
+      if (!siteId) return;
+      const response = await sendDbOp('site.delete', { siteId });
+      if (!response?.success || response.data !== true) {
+        setStatus(libraryStatus, response?.error || 'サイト削除に失敗しました。', true);
+        return;
+      }
+
+      await refreshLibraryData(elements);
+      setStatus(libraryStatus, 'サイトを削除しました。');
+      return;
+    }
+
+    if (dragPayload.type === 'note') {
+      const noteId = String(dragPayload.noteId || '').trim();
+      if (!noteId) return;
+      const response = await sendDbOp('note.delete', { noteId });
+      if (!response?.success || response.data !== true) {
+        setStatus(libraryStatus, response?.error || 'メモ削除に失敗しました。', true);
+        return;
+      }
+
+      await refreshLibraryData(elements);
+      setStatus(libraryStatus, 'メモを削除しました。');
+    }
+  }
+
   function init() {
     const libraryWorkspace = document.getElementById('libraryWorkspace');
     const libraryExplorer = document.getElementById('libraryExplorer');
+    const libraryTrash = document.getElementById('libraryTrash');
     const librarySearchInput = document.getElementById('librarySearchInput');
     const libraryStatus = document.getElementById('libraryStatus');
 
-    if (!libraryWorkspace || !libraryExplorer || !librarySearchInput || !libraryStatus) {
+    if (!libraryWorkspace || !libraryExplorer || !libraryTrash || !librarySearchInput || !libraryStatus) {
       return;
     }
 
@@ -456,6 +514,12 @@
       if (entryType === 'site') {
         dragPayload = {
           type: 'site',
+          siteId: row.dataset.siteId,
+        };
+      } else if (entryType === 'note') {
+        dragPayload = {
+          type: 'note',
+          noteId: row.dataset.noteId,
           siteId: row.dataset.siteId,
         };
       } else if (entryType === 'folder') {
@@ -489,14 +553,14 @@
     libraryExplorer.addEventListener('dragend', () => {
       dragPayload = null;
       clearDragPreview();
-      clearDropTargetHighlights(libraryExplorer);
+      clearDropTargetHighlights(libraryWorkspace);
     });
 
     libraryExplorer.addEventListener('dragover', (event) => {
       const folderRow = closestFolderTarget(event);
       if (!folderRow || !dragPayload) return;
       event.preventDefault();
-      clearDropTargetHighlights(libraryExplorer);
+      clearDropTargetHighlights(libraryWorkspace);
       folderRow.classList.add('library-drop-target');
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'move';
@@ -520,13 +584,40 @@
       if (!folderRow || !dragPayload) return;
       event.preventDefault();
       clearDragPreview();
-      clearDropTargetHighlights(libraryExplorer);
+      clearDropTargetHighlights(libraryWorkspace);
 
       await handleDropOnFolderRow({
         targetRow: folderRow,
         libraryStatus,
         elements,
       });
+      dragPayload = null;
+    });
+
+    libraryTrash.addEventListener('dragover', (event) => {
+      if (!dragPayload) return;
+      event.preventDefault();
+      clearDropTargetHighlights(libraryWorkspace);
+      libraryTrash.classList.add('library-trash-drop-target');
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
+    });
+
+    libraryTrash.addEventListener('dragleave', (event) => {
+      const nextTarget = event.relatedTarget;
+      if (nextTarget && libraryTrash.contains(nextTarget)) {
+        return;
+      }
+      libraryTrash.classList.remove('library-trash-drop-target');
+    });
+
+    libraryTrash.addEventListener('drop', async (event) => {
+      if (!dragPayload) return;
+      event.preventDefault();
+      clearDragPreview();
+      clearDropTargetHighlights(libraryWorkspace);
+      await handleDropOnTrash({ libraryStatus, elements });
       dragPayload = null;
     });
 
@@ -550,27 +641,6 @@
           }
 
           await refreshLibraryData(elements);
-          return;
-        }
-
-        if (action === 'delete-folder') {
-          const folderId = button.dataset.folderId;
-          const folderName = button.dataset.folderName || 'フォルダ';
-          const confirmed = window.confirm(`「${folderName}」を削除します。配下サイトは未分類へ移動されます。`);
-          if (!confirmed) return;
-
-          const response = await sendDbOp('folder.delete', { folderId });
-          if (!response?.success) {
-            setStatus(libraryStatus, response?.error || 'フォルダの削除に失敗しました。', true);
-            return;
-          }
-
-          openMenuFolderId = null;
-          if (response.data?.folder?.folderId) {
-            collapsedFolderIds.add(normalizeFolderId(response.data.folder.folderId));
-          }
-          await refreshLibraryData(elements);
-          setStatus(libraryStatus, 'フォルダを削除しました。');
           return;
         }
 

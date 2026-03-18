@@ -800,6 +800,34 @@
     return db.sites.get(siteId);
   }
 
+  async function deleteSite(siteId) {
+    const id = String(siteId || '').trim();
+    if (!id) return false;
+
+    const site = await db.sites.get(id);
+    if (!site) return false;
+
+    await db.transaction(
+      'rw',
+      db.sites,
+      db.siteFolders,
+      db.notes,
+      db.markers,
+      db.chatThreads,
+      db.chats,
+      async () => {
+        await db.siteFolders.where('siteId').equals(id).delete();
+        await db.notes.where('siteId').equals(id).delete();
+        await db.markers.where('siteId').equals(id).delete();
+        await db.chatThreads.where('siteId').equals(id).delete();
+        await db.chats.where('siteId').equals(id).delete();
+        await db.sites.delete(id);
+      }
+    );
+
+    return true;
+  }
+
   global.ExtensionRepository = {
     db,
     normalizeTags,
@@ -819,6 +847,7 @@
     renameTag,
     findByTag,
     getSiteByUrl,
+    deleteSite,
     createThread,
     getThread,
     listThreads,

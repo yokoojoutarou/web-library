@@ -235,6 +235,11 @@ body {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+.library-entry.library-trash-drop-target {
+  border-color: var(--error);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--error) 35%, transparent);
+}
+
 .library-entry.library-dragging {
   opacity: 0.45;
 }
@@ -249,6 +254,20 @@ body {
 
 .library-entry-note {
   background: var(--bg-input);
+}
+
+.library-trash-row {
+  border-style: dashed;
+  background: var(--bg-secondary);
+  margin-top: 2px;
+  min-height: 56px;
+  padding: 14px 12px;
+  flex: 0 0 auto;
+}
+
+.library-trash-row .library-entry-name {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .library-entry-main {

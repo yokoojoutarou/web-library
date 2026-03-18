@@ -7,6 +7,7 @@ importScripts('../vendor/dexie.min.js', './db/repository.js');
 const DB_OPERATION_HANDLERS = Object.freeze({
   'site.ensure': (repo, payload) => repo.ensureSite(payload),
   'site.getByUrl': (repo, payload) => repo.getSiteByUrl(payload.url),
+  'site.delete': (repo, payload) => repo.deleteSite(payload.siteId),
   'site.setTags': (repo, payload) => repo.setSiteTags(payload),
 
   'chat.save': (repo, payload) => repo.saveChat(payload),
