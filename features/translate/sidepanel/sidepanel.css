@@ -104,7 +104,7 @@ body {
 /* ===== MODE SWITCH ===== */
 .mode-switch {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 10px 12px;
   background: var(--bg-secondary);
@@ -145,6 +145,214 @@ body {
   height: calc(100vh - 105px);
   display: flex;
   flex-direction: column;
+}
+
+#libraryWorkspace {
+  height: calc(100vh - 105px);
+  display: flex;
+  flex-direction: column;
+}
+
+.library-layout {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.library-sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--bg-secondary);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.library-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.library-title {
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.library-tree {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.library-folder-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.library-folder-row.active {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.library-folder-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.library-folder-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.library-folder-count {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.library-folder-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.library-icon-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.library-icon-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.library-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px;
+  gap: 8px;
+}
+
+.library-content-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.library-current-folder {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.library-search-input {
+  width: 52%;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
+.library-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.library-site-list {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+.library-site-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: transparent;
+}
+
+.library-site-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-site-url {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-site-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.library-site-counts {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.library-move-select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 4px 6px;
+  max-width: 145px;
 }
 
 .markers-layout {

@@ -36,6 +36,7 @@
     <button id="modeAiBtn" class="mode-btn" role="tab" aria-selected="false">Ask AI</button>
     <button id="modeNotesBtn" class="mode-btn" role="tab" aria-selected="false">Notes</button>
     <button id="modeMarkersBtn" class="mode-btn" role="tab" aria-selected="false">Markers</button>
+    <button id="modeLibraryBtn" class="mode-btn" role="tab" aria-selected="false">Library</button>
   </div>
 
   <div id="translateWorkspace">
@@ -249,6 +250,27 @@
     </div>
   </div>
 
+  <div id="libraryWorkspace" class="hidden">
+    <div class="library-layout">
+      <aside class="library-sidebar">
+        <div class="library-sidebar-head">
+          <div class="library-title">Folders</div>
+          <button id="libraryAddFolderBtn" class="toolbar-btn" type="button">+ 作成</button>
+        </div>
+        <div id="libraryTree" class="library-tree"></div>
+      </aside>
+
+      <section class="library-content">
+        <div class="library-content-head">
+          <div id="libraryCurrentFolder" class="library-current-folder">未分類</div>
+          <input id="librarySearchInput" class="library-search-input" type="search" placeholder="タイトル・URL・メモで検索">
+        </div>
+        <div id="librarySiteList" class="library-site-list"></div>
+        <div id="libraryStatus" class="notes-status"></div>
+      </section>
+    </div>
+  </div>
+
   <!-- Settings Modal -->
   <div id="settingsModal" class="modal hidden">
     <div class="modal-overlay"></div>
@@ -322,6 +344,7 @@
   <script src="../../ai/sidepanel/ai-chat.js"></script>
   <script src="../../notes/sidepanel/note-panel.js"></script>
   <script src="../../marker/sidepanel/marker-panel.js"></script>
+  <script src="../../library/sidepanel/library-panel.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

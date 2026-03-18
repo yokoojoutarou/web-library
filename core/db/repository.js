@@ -2,7 +2,7 @@
 
 (function initExtensionDb(global) {
   const DB_NAME = 'deepl_translate_extension_db';
-  const DB_VERSION = 3;
+  const DB_VERSION = 4;
 
   class ExtensionDb extends Dexie {
     constructor() {
@@ -22,6 +22,8 @@
         chatThreads: '&threadId,siteId,updatedAt,createdAt,[siteId+updatedAt]',
         notes: '&noteId,siteId,createdAt,updatedAt,*tags,[siteId+updatedAt]',
         markers: '&markerId,siteId,createdAt,updatedAt,color,*tags,[siteId+updatedAt]',
+        folders: '&folderId,parentFolderId,updatedAt,[parentFolderId+updatedAt],nameLower',
+        siteFolders: '&siteId,folderId,updatedAt,[folderId+updatedAt]',
       });
     }
   }
@@ -62,6 +64,14 @@
     return [...set];
   }
 
+  function normalizeFolderName(name) {
+    return String(name || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function toFolderNameLower(name) {
+    return normalizeFolderName(name).toLowerCase();
+  }
+
   async function ensureSite({ url, title = '', tags = [] }) {
     const siteId = siteIdFromUrl(url);
     const timestamp = nowIso();
@@ -91,6 +101,242 @@
 
     await db.sites.put(site);
     return { ...site };
+  }
+
+  function buildFolderTree(folders) {
+    const byId = new Map();
+    const roots = [];
+
+    folders.forEach((folder) => {
+      byId.set(folder.folderId, {
+        ...folder,
+        children: [],
+      });
+    });
+
+    folders.forEach((folder) => {
+      const node = byId.get(folder.folderId);
+      if (!node) return;
+
+      const parentId = folder.parentFolderId || null;
+      const parent = parentId ? byId.get(parentId) : null;
+
+      if (parent) {
+        parent.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+
+    const sortNodes = (nodes) => {
+      nodes.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      nodes.forEach((node) => sortNodes(node.children));
+    };
+
+    sortNodes(roots);
+    return roots;
+  }
+
+  async function createFolder({ name, parentFolderId = null }) {
+    const normalizedName = normalizeFolderName(name);
+    if (!normalizedName) {
+      throw new Error('Folder name is required.');
+    }
+
+    const timestamp = nowIso();
+    const resolvedParent = parentFolderId || null;
+    if (resolvedParent) {
+      const parent = await db.folders.get(resolvedParent);
+      if (!parent) {
+        throw new Error('Parent folder not found.');
+      }
+    }
+
+    const folder = {
+      folderId: global.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      name: normalizedName,
+      nameLower: toFolderNameLower(normalizedName),
+      parentFolderId: resolvedParent,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      schemaVersion: 1,
+    };
+
+    await db.folders.put(folder);
+    return { ...folder };
+  }
+
+  async function renameFolder({ folderId, name }) {
+    if (!folderId) {
+      throw new Error('folderId is required.');
+    }
+
+    const normalizedName = normalizeFolderName(name);
+    if (!normalizedName) {
+      throw new Error('Folder name is required.');
+    }
+
+    await db.folders.update(folderId, {
+      name: normalizedName,
+      nameLower: toFolderNameLower(normalizedName),
+      updatedAt: nowIso(),
+    });
+
+    return db.folders.get(folderId);
+  }
+
+  async function deleteFolder({ folderId }) {
+    if (!folderId) {
+      throw new Error('folderId is required.');
+    }
+
+    const folder = await db.folders.get(folderId);
+    if (!folder) {
+      return false;
+    }
+
+    const parentFolderId = folder.parentFolderId || null;
+    const timestamp = nowIso();
+
+    await db.transaction('rw', db.folders, db.siteFolders, async () => {
+      await db.folders.where('parentFolderId').equals(folderId).modify((child) => {
+        child.parentFolderId = parentFolderId;
+        child.updatedAt = timestamp;
+      });
+
+      await db.siteFolders.where('folderId').equals(folderId).modify((link) => {
+        link.folderId = null;
+        link.updatedAt = timestamp;
+      });
+
+      await db.folders.delete(folderId);
+    });
+
+    return true;
+  }
+
+  async function listFolders() {
+    const folders = await db.folders.toArray();
+    const siteLinks = await db.siteFolders.toArray();
+    const siteCountMap = siteLinks.reduce((map, link) => {
+      const folderId = link.folderId || null;
+      if (!folderId) return map;
+      map.set(folderId, (map.get(folderId) || 0) + 1);
+      return map;
+    }, new Map());
+
+    const normalizedFolders = folders
+      .map((folder) => ({
+        ...folder,
+        parentFolderId: folder.parentFolderId || null,
+        siteCount: siteCountMap.get(folder.folderId) || 0,
+      }))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+    const tree = buildFolderTree(normalizedFolders);
+    return {
+      folders: normalizedFolders,
+      tree,
+    };
+  }
+
+  async function moveSiteToFolder({ siteId, url, title = '', targetFolderId = null }) {
+    const timestamp = nowIso();
+    let resolvedSiteId = siteId || '';
+
+    if (!resolvedSiteId) {
+      if (!url) {
+        throw new Error('siteId or url is required.');
+      }
+      const site = await ensureSite({ url, title });
+      resolvedSiteId = site.siteId;
+    }
+
+    if (targetFolderId) {
+      const target = await db.folders.get(targetFolderId);
+      if (!target) {
+        throw new Error('Target folder not found.');
+      }
+    }
+
+    const existing = await db.siteFolders.get(resolvedSiteId);
+    const link = {
+      siteId: resolvedSiteId,
+      folderId: targetFolderId || null,
+      createdAt: existing?.createdAt || timestamp,
+      updatedAt: timestamp,
+      schemaVersion: 1,
+    };
+
+    await db.siteFolders.put(link);
+    await db.sites.update(resolvedSiteId, { updatedAt: timestamp });
+    return { ...link };
+  }
+
+  async function listLibrarySites({ folderId = null, query = '', limit = 500 } = {}) {
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 500;
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    const targetFolderId = folderId || null;
+
+    const [sites, siteLinks, notes, markers] = await Promise.all([
+      db.sites.orderBy('updatedAt').reverse().toArray(),
+      db.siteFolders.toArray(),
+      db.notes.toArray(),
+      db.markers.toArray(),
+    ]);
+
+    const folderBySite = siteLinks.reduce((map, link) => {
+      map.set(link.siteId, link.folderId || null);
+      return map;
+    }, new Map());
+
+    const notesBySite = notes.reduce((map, note) => {
+      if (!note?.siteId) return map;
+      const bucket = map.get(note.siteId) || [];
+      bucket.push(note);
+      map.set(note.siteId, bucket);
+      return map;
+    }, new Map());
+
+    const markersBySiteCount = markers.reduce((map, marker) => {
+      if (!marker?.siteId) return map;
+      map.set(marker.siteId, (map.get(marker.siteId) || 0) + 1);
+      return map;
+    }, new Map());
+
+    return sites
+      .filter((site) => {
+        const assignedFolderId = folderBySite.get(site.siteId) || null;
+        if (assignedFolderId !== targetFolderId) {
+          return false;
+        }
+
+        if (!normalizedQuery) {
+          return true;
+        }
+
+        const url = String(site.url || '').toLowerCase();
+        const title = String(site.title || '').toLowerCase();
+        if (url.includes(normalizedQuery) || title.includes(normalizedQuery)) {
+          return true;
+        }
+
+        const siteNotes = notesBySite.get(site.siteId) || [];
+        return siteNotes.some((note) => String(note.markdown || '').toLowerCase().includes(normalizedQuery));
+      })
+      .map((site) => {
+        const siteNotes = notesBySite.get(site.siteId) || [];
+        return {
+          siteId: site.siteId,
+          url: site.url,
+          title: site.title || site.url,
+          folderId: folderBySite.get(site.siteId) || null,
+          updatedAt: site.updatedAt,
+          noteCount: siteNotes.length,
+          markerCount: markersBySiteCount.get(site.siteId) || 0,
+        };
+      })
+      .slice(0, safeLimit);
   }
 
   function rangeBySiteAndUpdatedAt(siteId) {
@@ -408,5 +654,11 @@
     listThreads,
     updateThreadTitle,
     appendThreadMessages,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    listFolders,
+    moveSiteToFolder,
+    listLibrarySites,
   };
 })(globalThis);

@@ -28,6 +28,14 @@ const DB_OPERATION_HANDLERS = Object.freeze({
   'marker.listBySite': (repo, payload) => repo.getMarkersBySite(payload),
   'marker.delete': (repo, payload) => repo.deleteMarker(payload.markerId),
 
+  'folder.create': (repo, payload) => repo.createFolder(payload),
+  'folder.rename': (repo, payload) => repo.renameFolder(payload),
+  'folder.delete': (repo, payload) => repo.deleteFolder(payload),
+  'folder.list': (repo, payload) => repo.listFolders(payload),
+
+  'library.moveSite': (repo, payload) => repo.moveSiteToFolder(payload),
+  'library.listSites': (repo, payload) => repo.listLibrarySites(payload),
+
   'tag.rename': (repo, payload) => repo.renameTag(payload),
   'tag.search': (repo, payload) => repo.findByTag(payload),
 });
