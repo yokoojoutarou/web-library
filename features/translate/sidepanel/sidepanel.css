@@ -312,8 +312,9 @@ body {
 
 .library-entry-actions {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
+  gap: 6px;
+  align-self: stretch;
 }
 
 .library-icon-btn {
@@ -334,6 +335,31 @@ body {
 
 .library-add-wrap {
   position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.library-folder-action-btn {
+  min-width: 28px;
+  min-height: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.library-folder-action-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+  background: var(--bg-card-hover);
+}
+
+.library-folder-action-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .library-add-menu {

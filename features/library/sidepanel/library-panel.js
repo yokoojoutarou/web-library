@@ -131,12 +131,24 @@
     const actions = document.createElement('div');
     actions.className = 'library-entry-actions';
 
+    if (!isRoot) {
+      const renameBtn = document.createElement('button');
+      renameBtn.type = 'button';
+      renameBtn.className = 'library-icon-btn library-folder-action-btn';
+      renameBtn.dataset.action = 'rename-folder';
+      renameBtn.dataset.folderId = normalizedFolderId;
+      renameBtn.dataset.folderName = name;
+      renameBtn.title = 'フォルダ名を変更';
+      renameBtn.textContent = '✎';
+      actions.appendChild(renameBtn);
+    }
+
     const addWrap = document.createElement('div');
     addWrap.className = 'library-add-wrap';
 
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
-    addBtn.className = 'library-icon-btn';
+    addBtn.className = 'library-icon-btn library-folder-action-btn';
     addBtn.dataset.action = 'toggle-add-menu';
     addBtn.dataset.folderId = normalizedFolderId;
     addBtn.title = '追加';
@@ -694,6 +706,30 @@
           }
           await refreshLibraryData(elements);
           setStatus(libraryStatus, 'フォルダを作成しました。');
+          return;
+        }
+
+        if (action === 'rename-folder') {
+          const folderId = normalizeFolderId(button.dataset.folderId);
+          if (!folderId) return;
+
+          const currentName = String(button.dataset.folderName || '').trim();
+          const nextName = window.prompt('新しいフォルダ名を入力してください', currentName);
+          if (!String(nextName || '').trim()) return;
+
+          const response = await sendDbOp('folder.rename', {
+            folderId,
+            name: String(nextName || '').trim(),
+          });
+
+          if (!response?.success) {
+            setStatus(libraryStatus, response?.error || 'フォルダ名の変更に失敗しました。', true);
+            return;
+          }
+
+          await refreshLibraryData(elements);
+          setStatus(libraryStatus, 'フォルダ名を変更しました。');
+          return;
         }
 
         return;
