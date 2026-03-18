@@ -490,9 +490,10 @@
     const libraryExplorer = document.getElementById('libraryExplorer');
     const libraryTrash = document.getElementById('libraryTrash');
     const librarySearchInput = document.getElementById('librarySearchInput');
+    const libraryCreateFolderBtn = document.getElementById('libraryCreateFolderBtn');
     const libraryStatus = document.getElementById('libraryStatus');
 
-    if (!libraryWorkspace || !libraryExplorer || !libraryTrash || !librarySearchInput || !libraryStatus) {
+    if (!libraryWorkspace || !libraryExplorer || !libraryTrash || !librarySearchInput || !libraryCreateFolderBtn || !libraryStatus) {
       return;
     }
 
@@ -758,6 +759,28 @@
     librarySearchInput.addEventListener('input', () => {
       searchQuery = String(librarySearchInput.value || '').trim();
       scheduleRefresh(elements);
+    });
+
+    libraryCreateFolderBtn.addEventListener('click', async () => {
+      const nextName = window.prompt('フォルダ名を入力してください');
+      if (!String(nextName || '').trim()) return;
+
+      const response = await sendDbOp('folder.create', {
+        name: String(nextName || '').trim(),
+        parentFolderId: null,
+      });
+
+      if (!response?.success) {
+        setStatus(libraryStatus, response?.error || 'フォルダの作成に失敗しました。', true);
+        return;
+      }
+
+      if (response.data?.folderId) {
+        collapsedFolderIds.add(normalizeFolderId(response.data.folderId));
+      }
+
+      await refreshLibraryData(elements);
+      setStatus(libraryStatus, 'フォルダを作成しました。');
     });
 
     window.addEventListener('deepl:workspaceModeChanged', (event) => {

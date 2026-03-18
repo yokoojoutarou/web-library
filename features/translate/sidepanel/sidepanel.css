@@ -169,16 +169,34 @@ body {
   gap: 8px;
 }
 
-.library-title {
-  font-size: 11px;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  font-weight: 600;
+.library-create-folder-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.library-create-folder-btn:hover {
+  border-color: var(--accent-dim);
+  background: var(--bg-card-hover);
+}
+
+.library-create-folder-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .library-search-input {
-  width: 62%;
+  width: auto;
+  flex: 1;
+  min-width: 0;
   border: 1px solid var(--border);
   background: var(--bg-input);
   color: var(--text-primary);
