@@ -37,6 +37,7 @@ const DB_OPERATION_HANDLERS = Object.freeze({
   'library.createSiteFolder': (repo, payload) => repo.createSiteFolderFromSite(payload),
   'library.moveSite': (repo, payload) => repo.moveSiteToFolder(payload),
   'library.listSites': (repo, payload) => repo.listLibrarySites(payload),
+  'library.listNotes': (repo, payload) => repo.listLibraryNotes(payload),
 
   'tag.rename': (repo, payload) => repo.renameTag(payload),
   'tag.search': (repo, payload) => repo.findByTag(payload),

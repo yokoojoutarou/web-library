@@ -6,6 +6,8 @@
   let hasInitializedCollapseState = false;
   let openMenuFolderId = null;
   let dragPayload = null;
+  let dragPreviewElement = null;
+  let draggingElement = null;
   let refreshTimer = null;
 
   async function sendDbOp(operation, payload = {}) {
@@ -47,6 +49,36 @@
     const sub = document.createElement('div');
     sub.className = 'library-entry-sub';
     sub.textContent = `メモ ${Number(site.noteCount || 0)} / マーカー ${Number(site.markerCount || 0)}`;
+
+    main.appendChild(icon);
+    main.appendChild(name);
+    main.appendChild(sub);
+
+    row.appendChild(main);
+    return row;
+  }
+
+  function createNoteEntry({ note, depth }) {
+    const row = document.createElement('div');
+    row.className = 'library-entry library-entry-note';
+    row.dataset.entryType = 'note';
+    row.dataset.noteId = note.noteId;
+    row.style.marginLeft = `${Math.max(0, depth) * 14}px`;
+
+    const main = document.createElement('div');
+    main.className = 'library-entry-main';
+
+    const icon = document.createElement('span');
+    icon.className = 'library-entry-sub';
+    icon.textContent = '📝';
+
+    const name = document.createElement('div');
+    name.className = 'library-entry-name';
+    name.textContent = note.title || 'Untitled Note';
+
+    const sub = document.createElement('div');
+    sub.className = 'library-entry-sub';
+    sub.textContent = note.siteTitle ? `Site: ${note.siteTitle}` : 'Site: -';
 
     main.appendChild(icon);
     main.appendChild(name);
@@ -170,12 +202,26 @@
       limit: 800,
     });
 
+    const folderNotesResponse = await sendDbOp('library.listNotes', {
+      folderId,
+      query: searchQuery,
+      limit: 800,
+    });
+
     const folderSites = folderSitesResponse?.success && Array.isArray(folderSitesResponse.data)
       ? folderSitesResponse.data
       : [];
 
+    const folderNotes = folderNotesResponse?.success && Array.isArray(folderNotesResponse.data)
+      ? folderNotesResponse.data
+      : [];
+
     folderSites.forEach((site) => {
       explorerElement.appendChild(createSiteEntry({ site, depth: depth + 1 }));
+    });
+
+    folderNotes.forEach((note) => {
+      explorerElement.appendChild(createNoteEntry({ note, depth: depth + 1 }));
     });
 
     const children = Array.isArray(parentNode.children) ? parentNode.children : [];
@@ -209,15 +255,26 @@
       limit: 800,
     });
 
+    const rootNotesResponse = await sendDbOp('library.listNotes', {
+      folderId: null,
+      query: searchQuery,
+      limit: 800,
+    });
+
     if (!rootSitesResponse?.success) {
       throw new Error(rootSitesResponse?.error || 'サイト一覧の取得に失敗しました。');
     }
 
+    if (!rootNotesResponse?.success) {
+      throw new Error(rootNotesResponse?.error || 'メモ一覧の取得に失敗しました。');
+    }
+
     const rootSites = Array.isArray(rootSitesResponse.data) ? rootSitesResponse.data : [];
+    const rootNotes = Array.isArray(rootNotesResponse.data) ? rootNotesResponse.data : [];
     const rootRow = createFolderRow({
       folderId: null,
       name: '未分類',
-      siteCount: rootSites.length,
+      siteCount: rootSites.length + rootNotes.length,
       depth: 0,
       isRoot: true,
     });
@@ -226,6 +283,9 @@
     if (!collapsedFolderIds.has('')) {
       rootSites.forEach((site) => {
         libraryExplorer.appendChild(createSiteEntry({ site, depth: 1 }));
+      });
+      rootNotes.forEach((note) => {
+        libraryExplorer.appendChild(createNoteEntry({ note, depth: 1 }));
       });
     }
 
@@ -237,7 +297,10 @@
       });
     }
 
-    setStatus(libraryStatus, `${rootSites.length}件(未分類) / フォルダ${folderFlatList.length}件`);
+    setStatus(
+      libraryStatus,
+      `未分類 ${rootSites.length + rootNotes.length}件 / フォルダ${folderFlatList.length}件`
+    );
   }
 
   function scheduleRefresh(elements) {
@@ -274,6 +337,57 @@
 
   function closestFolderTarget(event) {
     return event.target.closest('.library-entry-folder');
+  }
+
+  async function openSiteUrl(siteUrl) {
+    const url = String(siteUrl || '').trim();
+    if (!url) {
+      throw new Error('URLが見つかりません。');
+    }
+
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const activeTab = tabs?.[0];
+
+    if (activeTab?.id) {
+      await chrome.tabs.update(activeTab.id, { url });
+      return;
+    }
+
+    await chrome.tabs.create({ url });
+  }
+
+  function clearDragPreview() {
+    if (draggingElement) {
+      draggingElement.classList.remove('library-dragging');
+      draggingElement = null;
+    }
+
+    if (dragPreviewElement) {
+      dragPreviewElement.remove();
+      dragPreviewElement = null;
+    }
+  }
+
+  function createDragPreview(row) {
+    clearDragPreview();
+    const rect = row.getBoundingClientRect();
+    const clone = row.cloneNode(true);
+    clone.style.position = 'fixed';
+    clone.style.top = '-9999px';
+    clone.style.left = '-9999px';
+    clone.style.width = `${Math.ceil(rect.width)}px`;
+    clone.style.marginLeft = '0';
+    clone.style.pointerEvents = 'none';
+    clone.style.opacity = '0.95';
+    clone.style.zIndex = '99999';
+    document.body.appendChild(clone);
+    dragPreviewElement = clone;
+    draggingElement = row;
+    row.classList.add('library-dragging');
+    return {
+      x: Math.min(24, Math.max(8, Math.round(rect.width * 0.15))),
+      y: Math.round(rect.height / 2),
+    };
   }
 
   async function handleDropOnFolderRow({ targetRow, libraryStatus, elements }) {
@@ -333,6 +447,7 @@
     libraryExplorer.addEventListener('dragstart', (event) => {
       const row = event.target.closest('.library-entry');
       if (!row || row.draggable !== true) {
+        clearDragPreview();
         dragPayload = null;
         return;
       }
@@ -355,17 +470,25 @@
           folderId,
         };
       } else {
+        clearDragPreview();
         dragPayload = null;
       }
 
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', JSON.stringify(dragPayload || {}));
+        if (dragPayload) {
+          const dragImageOffset = createDragPreview(row);
+          if (dragPreviewElement) {
+            event.dataTransfer.setDragImage(dragPreviewElement, dragImageOffset.x, dragImageOffset.y);
+          }
+        }
       }
     });
 
     libraryExplorer.addEventListener('dragend', () => {
       dragPayload = null;
+      clearDragPreview();
       clearDropTargetHighlights(libraryExplorer);
     });
 
@@ -396,6 +519,7 @@
       const folderRow = closestFolderTarget(event);
       if (!folderRow || !dragPayload) return;
       event.preventDefault();
+      clearDragPreview();
       clearDropTargetHighlights(libraryExplorer);
 
       await handleDropOnFolderRow({
@@ -501,6 +625,55 @@
           await refreshLibraryData(elements);
           setStatus(libraryStatus, 'フォルダを作成しました。');
         }
+
+        return;
+      }
+
+      const row = event.target.closest('.library-entry');
+      if (!row) return;
+
+      const entryType = row.dataset.entryType;
+      if (entryType === 'folder') {
+        const folderId = normalizeFolderId(row.dataset.folderId);
+        if (collapsedFolderIds.has(folderId)) {
+          collapsedFolderIds.delete(folderId);
+        } else {
+          collapsedFolderIds.add(folderId);
+        }
+
+        await refreshLibraryData(elements);
+        return;
+      }
+
+      if (entryType === 'site') {
+        try {
+          const siteId = String(row.dataset.siteId || '');
+          const site = await sendDbOp('site.getByUrl', { url: siteId });
+          const url = site?.success ? String(site.data?.url || '') : '';
+          await openSiteUrl(url || siteId);
+          setStatus(libraryStatus, 'サイトを開きました。');
+        } catch (error) {
+          setStatus(libraryStatus, error?.message || 'サイトを開けませんでした。', true);
+        }
+        return;
+      }
+
+      if (entryType === 'note') {
+        const noteId = String(row.dataset.noteId || '').trim();
+        if (!noteId) {
+          setStatus(libraryStatus, 'メモIDが見つかりません。', true);
+          return;
+        }
+
+        const notesModeButton = document.getElementById('modeNotesBtn');
+        if (notesModeButton) {
+          notesModeButton.click();
+        }
+
+        window.dispatchEvent(new CustomEvent('deepl:openNoteFromLibrary', {
+          detail: { noteId },
+        }));
+        setStatus(libraryStatus, 'メモを開きました。');
       }
     });
 

@@ -438,6 +438,77 @@
       .slice(0, safeLimit);
   }
 
+  function deriveNoteTitle(markdown) {
+    const text = String(markdown || '')
+      .replace(/^#+\s*/gm, '')
+      .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+      .replace(/[>*_`~\-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!text) return 'Untitled Note';
+    return text.length > 48 ? `${text.slice(0, 47)}…` : text;
+  }
+
+  async function listLibraryNotes({ folderId = null, query = '', limit = 500 } = {}) {
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 500;
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    const targetFolderId = folderId || null;
+
+    const [notes, siteLinks, sites] = await Promise.all([
+      db.notes.orderBy('updatedAt').reverse().toArray(),
+      db.siteFolders.toArray(),
+      db.sites.toArray(),
+    ]);
+
+    const folderBySite = siteLinks.reduce((map, link) => {
+      map.set(link.siteId, link.folderId || null);
+      return map;
+    }, new Map());
+
+    const siteById = sites.reduce((map, site) => {
+      if (!site?.siteId) return map;
+      map.set(site.siteId, site);
+      return map;
+    }, new Map());
+
+    return notes
+      .filter((note) => {
+        const assignedFolderId = folderBySite.get(note.siteId) || null;
+        if (assignedFolderId !== targetFolderId) {
+          return false;
+        }
+
+        if (!normalizedQuery) {
+          return true;
+        }
+
+        const markdown = String(note.markdown || '').toLowerCase();
+        if (markdown.includes(normalizedQuery)) {
+          return true;
+        }
+
+        const site = siteById.get(note.siteId);
+        const siteUrl = String(site?.url || '').toLowerCase();
+        const siteTitle = String(site?.title || '').toLowerCase();
+        return siteUrl.includes(normalizedQuery) || siteTitle.includes(normalizedQuery);
+      })
+      .map((note) => {
+        const site = siteById.get(note.siteId);
+        return {
+          noteId: note.noteId,
+          siteId: note.siteId,
+          folderId: folderBySite.get(note.siteId) || null,
+          title: deriveNoteTitle(note.markdown),
+          markdown: note.markdown || '',
+          updatedAt: note.updatedAt,
+          siteTitle: String(site?.title || site?.url || note.siteId || ''),
+          siteUrl: String(site?.url || ''),
+        };
+      })
+      .slice(0, safeLimit);
+  }
+
   function rangeBySiteAndUpdatedAt(siteId) {
     return {
       lower: [siteId, Dexie.minKey],
@@ -761,5 +832,6 @@
     moveSiteToFolder,
     createSiteFolderFromSite,
     listLibrarySites,
+    listLibraryNotes,
   };
 })(globalThis);

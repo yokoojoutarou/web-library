@@ -235,12 +235,20 @@ body {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+.library-entry.library-dragging {
+  opacity: 0.45;
+}
+
 .library-entry-folder {
   background: var(--bg-secondary);
 }
 
 .library-entry-site {
   background: var(--bg-card);
+}
+
+.library-entry-note {
+  background: var(--bg-input);
 }
 
 .library-entry-main {
