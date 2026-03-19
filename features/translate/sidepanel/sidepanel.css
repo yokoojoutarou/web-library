@@ -128,10 +128,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
   line-height: 1;
   padding: 0;
   user-select: none;
+}
+
+.rail-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .rail-btn[draggable="true"] {
