@@ -229,11 +229,15 @@
       throw new Error('Folder name is required.');
     }
 
-    await db.folders.update(folderId, {
+    const updatedCount = await db.folders.update(folderId, {
       name: normalizedName,
       nameLower: toFolderNameLower(normalizedName),
       updatedAt: nowIso(),
     });
+
+    if (updatedCount === 0) {
+      throw new Error('Folder not found.');
+    }
 
     return db.folders.get(folderId);
   }
@@ -358,7 +362,7 @@
 
   async function moveSiteToFolder({ siteId, url, title = '', targetFolderId = null }) {
     const timestamp = nowIso();
-    let resolvedSiteId = siteId || '';
+    let resolvedSiteId = String(siteId || '').trim();
 
     if (!resolvedSiteId) {
       if (!url) {
@@ -366,6 +370,11 @@
       }
       const site = await ensureSite({ url, title });
       resolvedSiteId = site.siteId;
+    } else {
+      const existingSite = await db.sites.get(resolvedSiteId);
+      if (!existingSite) {
+        throw new Error('Site not found.');
+      }
     }
 
     if (targetFolderId) {
@@ -458,6 +467,166 @@
       title,
       parentFolderId: uncategorizedFolder.folderId,
     });
+  }
+
+  async function getLibrarySnapshot({ query = '', limitPerFolder = 800 } = {}) {
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    const safeLimit = Number.isFinite(limitPerFolder)
+      ? Math.max(1, Math.min(2000, Math.floor(limitPerFolder)))
+      : 800;
+
+    const uncategorizedFolder = await ensureUncategorizedFolder();
+
+    const [folders, siteLinks, sites, notes, markers] = await Promise.all([
+      db.folders.toArray(),
+      db.siteFolders.toArray(),
+      db.sites.orderBy('updatedAt').reverse().toArray(),
+      db.notes.orderBy('updatedAt').reverse().toArray(),
+      db.markers.toArray(),
+    ]);
+
+    const folderBySite = siteLinks.reduce((map, link) => {
+      if (!link?.siteId) return map;
+      map.set(link.siteId, link.folderId || uncategorizedFolder.folderId);
+      return map;
+    }, new Map());
+
+    const notesBySite = notes.reduce((map, note) => {
+      if (!note?.siteId) return map;
+      const bucket = map.get(note.siteId) || [];
+      bucket.push(note);
+      map.set(note.siteId, bucket);
+      return map;
+    }, new Map());
+
+    const markerCountBySite = markers.reduce((map, marker) => {
+      if (!marker?.siteId) return map;
+      map.set(marker.siteId, (map.get(marker.siteId) || 0) + 1);
+      return map;
+    }, new Map());
+
+    const siteCountByFolder = new Map();
+    const siteById = new Map();
+    sites.forEach((site) => {
+      if (!site?.siteId) return;
+      siteById.set(site.siteId, site);
+      const assignedFolderId = folderBySite.get(site.siteId) || uncategorizedFolder.folderId;
+      folderBySite.set(site.siteId, assignedFolderId);
+      siteCountByFolder.set(assignedFolderId, (siteCountByFolder.get(assignedFolderId) || 0) + 1);
+    });
+
+    const normalizedFolders = folders
+      .map((folder) => ({
+        ...folder,
+        parentFolderId: folder.parentFolderId || null,
+        isSystem: Boolean(folder.isSystem),
+        systemType: String(folder.systemType || ''),
+        siteCount: siteCountByFolder.get(folder.folderId) || 0,
+      }))
+      .sort((a, b) => {
+        if (a.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && b.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return -1;
+        }
+        if (b.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && a.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return 1;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+
+    const tree = buildFolderTree(normalizedFolders);
+    const folderSites = {};
+    const folderNotes = {};
+    const folderSiteCount = new Map();
+    const folderNoteCount = new Map();
+
+    const pushFolderSite = (folderId, site) => {
+      const key = String(folderId || '').trim();
+      const currentCount = folderSiteCount.get(key) || 0;
+      if (currentCount >= safeLimit) return;
+      const bucket = folderSites[key] || [];
+      bucket.push(site);
+      folderSites[key] = bucket;
+      folderSiteCount.set(key, currentCount + 1);
+    };
+
+    const pushFolderNote = (folderId, note) => {
+      const key = String(folderId || '').trim();
+      const currentCount = folderNoteCount.get(key) || 0;
+      if (currentCount >= safeLimit) return;
+      const bucket = folderNotes[key] || [];
+      bucket.push(note);
+      folderNotes[key] = bucket;
+      folderNoteCount.set(key, currentCount + 1);
+    };
+
+    sites.forEach((site) => {
+      const siteId = String(site?.siteId || '').trim();
+      if (!siteId) return;
+      const assignedFolderId = folderBySite.get(siteId) || uncategorizedFolder.folderId;
+      const siteNotes = notesBySite.get(siteId) || [];
+
+      if (normalizedQuery) {
+        const lowerUrl = String(site.url || '').toLowerCase();
+        const lowerTitle = String(site.title || '').toLowerCase();
+        const hasQueryInSite = lowerUrl.includes(normalizedQuery) || lowerTitle.includes(normalizedQuery);
+        const hasQueryInNotes = siteNotes.some((note) => String(note.markdown || '').toLowerCase().includes(normalizedQuery));
+        if (!hasQueryInSite && !hasQueryInNotes) {
+          return;
+        }
+      }
+
+      pushFolderSite(assignedFolderId, {
+        siteId,
+        url: site.url,
+        title: site.title || site.url,
+        folderId: assignedFolderId,
+        updatedAt: site.updatedAt,
+        noteCount: siteNotes.length,
+        markerCount: markerCountBySite.get(siteId) || 0,
+      });
+    });
+
+    notes.forEach((note) => {
+      const siteId = String(note?.siteId || '').trim();
+      if (!siteId) return;
+
+      const assignedFolderId = folderBySite.get(siteId) || uncategorizedFolder.folderId;
+      if (normalizedQuery) {
+        const markdown = String(note.markdown || '').toLowerCase();
+        if (!markdown.includes(normalizedQuery)) {
+          const site = siteById.get(siteId);
+          const siteUrl = String(site?.url || '').toLowerCase();
+          const siteTitle = String(site?.title || '').toLowerCase();
+          if (!siteUrl.includes(normalizedQuery) && !siteTitle.includes(normalizedQuery)) {
+            return;
+          }
+        }
+      }
+
+      const site = siteById.get(siteId);
+      pushFolderNote(assignedFolderId, {
+        noteId: note.noteId,
+        siteId,
+        folderId: assignedFolderId,
+        title: deriveNoteTitle(note.markdown),
+        markdown: note.markdown || '',
+        updatedAt: note.updatedAt,
+        siteTitle: String(site?.title || site?.url || siteId),
+        siteUrl: String(site?.url || ''),
+      });
+    });
+
+    return {
+      folders: normalizedFolders,
+      tree,
+      folderSites,
+      folderNotes,
+      summary: {
+        folderCount: normalizedFolders.length,
+        siteCount: sites.length,
+        noteCount: notes.length,
+      },
+    };
   }
 
   async function listLibrarySites({ folderId = null, query = '', limit = 500 } = {}) {
@@ -972,6 +1141,7 @@
     listFolders,
     moveSiteToFolder,
     createSiteFolderFromSite,
+    getLibrarySnapshot,
     listLibrarySites,
     listLibraryNotes,
   };

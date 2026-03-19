@@ -114,6 +114,8 @@
     toggleBtn.dataset.action = 'toggle-folder';
     toggleBtn.dataset.folderId = normalizedFolderId;
     toggleBtn.title = isCollapsed ? 'フォルダを開く' : 'フォルダを閉じる';
+    toggleBtn.setAttribute('aria-label', isCollapsed ? 'フォルダを開く' : 'フォルダを閉じる');
+    toggleBtn.setAttribute('aria-expanded', String(!isCollapsed));
     toggleBtn.textContent = isCollapsed ? '▸' : '▾';
     main.appendChild(toggleBtn);
 
@@ -144,6 +146,7 @@
       renameBtn.dataset.folderId = normalizedFolderId;
       renameBtn.dataset.folderName = name;
       renameBtn.title = 'フォルダ名を変更';
+      renameBtn.setAttribute('aria-label', 'フォルダ名を変更');
       renameBtn.textContent = '✎';
       actions.appendChild(renameBtn);
     }
@@ -158,6 +161,7 @@
       addBtn.dataset.action = 'toggle-add-menu';
       addBtn.dataset.folderId = normalizedFolderId;
       addBtn.title = '追加';
+      addBtn.setAttribute('aria-label', openMenuFolderId === normalizedFolderId ? '追加メニューを閉じる' : '追加メニューを開く');
       addBtn.textContent = '＋';
 
       const menu = document.createElement('div');
@@ -190,7 +194,7 @@
     return row;
   }
 
-  async function renderFolderWithChildren({ parentNode, depth, explorerElement }) {
+  async function renderFolderWithChildren({ parentNode, depth, explorerElement, folderSitesByFolder, folderNotesByFolder }) {
     const folderId = normalizeFolderId(parentNode.folderId);
     const folderRow = createFolderRow({
       folderId,
@@ -206,24 +210,12 @@
       return;
     }
 
-    const folderSitesResponse = await sendDbOp('library.listSites', {
-      folderId,
-      query: searchQuery,
-      limit: 800,
-    });
-
-    const folderNotesResponse = await sendDbOp('library.listNotes', {
-      folderId,
-      query: searchQuery,
-      limit: 800,
-    });
-
-    const folderSites = folderSitesResponse?.success && Array.isArray(folderSitesResponse.data)
-      ? folderSitesResponse.data
+    const folderSites = Array.isArray(folderSitesByFolder?.[folderId])
+      ? folderSitesByFolder[folderId]
       : [];
 
-    const folderNotes = folderNotesResponse?.success && Array.isArray(folderNotesResponse.data)
-      ? folderNotesResponse.data
+    const folderNotes = Array.isArray(folderNotesByFolder?.[folderId])
+      ? folderNotesByFolder[folderId]
       : [];
 
     folderSites.forEach((site) => {
@@ -236,18 +228,29 @@
 
     const children = Array.isArray(parentNode.children) ? parentNode.children : [];
     for (const child of children) {
-      await renderFolderWithChildren({ parentNode: child, depth: depth + 1, explorerElement });
+      await renderFolderWithChildren({
+        parentNode: child,
+        depth: depth + 1,
+        explorerElement,
+        folderSitesByFolder,
+        folderNotesByFolder,
+      });
     }
   }
 
   async function refreshLibraryData({ libraryExplorer, libraryStatus }) {
-    const folderResponse = await sendDbOp('folder.list');
-    if (!folderResponse?.success) {
-      throw new Error(folderResponse?.error || 'フォルダ一覧の取得に失敗しました。');
+    const snapshotResponse = await sendDbOp('library.snapshot', {
+      query: searchQuery,
+      limitPerFolder: 800,
+    });
+    if (!snapshotResponse?.success) {
+      throw new Error(snapshotResponse?.error || 'ライブラリースナップショットの取得に失敗しました。');
     }
 
-    folderFlatList = Array.isArray(folderResponse.data?.folders) ? folderResponse.data.folders : [];
-    folderTree = Array.isArray(folderResponse.data?.tree) ? folderResponse.data.tree : [];
+    folderFlatList = Array.isArray(snapshotResponse.data?.folders) ? snapshotResponse.data.folders : [];
+    folderTree = Array.isArray(snapshotResponse.data?.tree) ? snapshotResponse.data.tree : [];
+    const folderSitesByFolder = snapshotResponse.data?.folderSites || {};
+    const folderNotesByFolder = snapshotResponse.data?.folderNotes || {};
 
     if (!hasInitializedCollapseState) {
       folderFlatList.forEach((folder) => {
@@ -265,12 +268,16 @@
         parentNode: folderNode,
         depth: 0,
         explorerElement: libraryExplorer,
+        folderSitesByFolder,
+        folderNotesByFolder,
       });
     }
 
+    const totalSites = Number(snapshotResponse.data?.summary?.siteCount || 0);
+    const totalNotes = Number(snapshotResponse.data?.summary?.noteCount || 0);
     setStatus(
       libraryStatus,
-      `フォルダ${folderFlatList.length}件`
+      `フォルダ${folderFlatList.length}件 / サイト${totalSites}件 / メモ${totalNotes}件`
     );
   }
 
