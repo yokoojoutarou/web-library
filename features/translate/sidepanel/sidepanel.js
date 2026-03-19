@@ -315,6 +315,12 @@
         return unique;
     }
 
+    function isSameActionOrder(left, right) {
+        if (!Array.isArray(left) || !Array.isArray(right)) return false;
+        if (left.length !== right.length) return false;
+        return left.every((id, index) => id === right[index]);
+    }
+
     function getCurrentActionOrder() {
         if (!actionRail) return [...DEFAULT_ACTION_ORDER];
         return Array.from(actionRail.querySelectorAll('[data-action-id]'))
@@ -340,7 +346,10 @@
     function initializeActionRailOrder(storedOrder) {
         const normalizedOrder = normalizeActionOrder(storedOrder);
         applyActionOrder(normalizedOrder);
-        persistActionOrder(normalizedOrder).catch(() => {});
+
+        if (!isSameActionOrder(storedOrder, normalizedOrder)) {
+            persistActionOrder(normalizedOrder).catch(() => {});
+        }
     }
 
     function setupActionRailDnD() {
@@ -395,8 +404,6 @@
             actionRail.querySelectorAll('.rail-drop-target').forEach((el) => {
                 el.classList.remove('rail-drop-target');
             });
-
-            persistActionOrder(getCurrentActionOrder()).catch(() => {});
         });
 
         actionRail.addEventListener('dragend', () => {
@@ -466,11 +473,11 @@
         modeNotesBtn.classList.toggle('active', isNotes);
         modeMarkersBtn.classList.toggle('active', isMarkers);
         modeLibraryBtn.classList.toggle('active', isLibrary);
-        modeTranslateBtn.setAttribute('aria-selected', String(isTranslate));
-        modeAiBtn.setAttribute('aria-selected', String(isAi));
-        modeNotesBtn.setAttribute('aria-selected', String(isNotes));
-        modeMarkersBtn.setAttribute('aria-selected', String(isMarkers));
-        modeLibraryBtn.setAttribute('aria-selected', String(isLibrary));
+        modeTranslateBtn.setAttribute('aria-pressed', String(isTranslate));
+        modeAiBtn.setAttribute('aria-pressed', String(isAi));
+        modeNotesBtn.setAttribute('aria-pressed', String(isNotes));
+        modeMarkersBtn.setAttribute('aria-pressed', String(isMarkers));
+        modeLibraryBtn.setAttribute('aria-pressed', String(isLibrary));
 
         translateWorkspace.classList.toggle('hidden', !isTranslate);
         aiWorkspace.classList.toggle('hidden', !isAi);
