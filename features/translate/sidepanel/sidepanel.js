@@ -45,6 +45,7 @@
     let aiModelFetchDebounce = null;
     let aiFetchRequestId = 0;
     let draggingActionId = null;
+    let currentWorkspaceMode = 'translate';
 
     const ACTION_ORDER_KEY = 'workspaceActionOrder';
     const DEFAULT_ACTION_ORDER = ['settings', 'translate', 'ai', 'notes', 'markers', 'library'];
@@ -128,7 +129,7 @@
                 detail: { text: message.text || '' }
             }));
 
-            if (autoTranslate.checked && message.text.trim()) {
+            if (autoTranslate.checked && message.text.trim() && currentWorkspaceMode === 'translate') {
                 debouncedTranslate();
             }
         }
@@ -348,7 +349,7 @@
         applyActionOrder(normalizedOrder);
 
         if (!isSameActionOrder(storedOrder, normalizedOrder)) {
-            persistActionOrder(normalizedOrder).catch(() => {});
+            persistActionOrder(normalizedOrder).catch(() => { });
         }
     }
 
@@ -413,7 +414,7 @@
             });
 
             if (draggingActionId) {
-                persistActionOrder(getCurrentActionOrder()).catch(() => {});
+                persistActionOrder(getCurrentActionOrder()).catch(() => { });
             }
             draggingActionId = null;
         });
@@ -485,6 +486,7 @@
         markersWorkspace.classList.toggle('hidden', !isMarkers);
         libraryWorkspace.classList.toggle('hidden', !isLibrary);
 
+        currentWorkspaceMode = nextMode;
         chrome.storage.local.set({ workspaceMode: nextMode });
         window.dispatchEvent(new CustomEvent('deepl:workspaceModeChanged', {
             detail: { mode: nextMode }
