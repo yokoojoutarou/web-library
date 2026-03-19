@@ -133,6 +133,20 @@
                 debouncedTranslate();
             }
         }
+
+        if (message.type === 'ACTIVATE_TRANSLATE') {
+            applyWorkspaceMode('translate');
+            sourceText.value = message.text || '';
+            updateCharCount();
+            debouncedTranslate();
+        }
+
+        if (message.type === 'ACTIVATE_AI_WITH_CONTEXT') {
+            applyWorkspaceMode('ai');
+            window.dispatchEvent(new CustomEvent('deepl:addAiContext', {
+                detail: { text: message.text || '' }
+            }));
+        }
     });
 
     // --- Translate ---

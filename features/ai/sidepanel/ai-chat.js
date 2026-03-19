@@ -448,6 +448,19 @@
       updatePreviewChip(latestSelectedText);
     });
 
+    window.addEventListener('deepl:addAiContext', (event) => {
+      const text = (event.detail?.text || '').trim();
+      if (!text) return;
+      confirmedContexts.push(text);
+      if (aiContextList) {
+        aiContextList.appendChild(createConfirmedChip(text));
+      }
+      updatePreviewChip('');
+      if (aiPromptInput) {
+        aiPromptInput.focus();
+      }
+    });
+
     (async () => {
       const saved = await chrome.storage.local.get([ACTIVE_THREAD_STORAGE_KEY]);
       const savedThreadId = saved?.[ACTIVE_THREAD_STORAGE_KEY];
