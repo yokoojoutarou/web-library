@@ -3,6 +3,12 @@
 (function initExtensionDb(global) {
   const DB_NAME = 'deepl_translate_extension_db';
   const DB_VERSION = 4;
+  const SYSTEM_FOLDER_IDS = Object.freeze({
+    UNCATEGORIZED: '__system_uncategorized__',
+  });
+  const SYSTEM_FOLDER_TYPES = Object.freeze({
+    UNCATEGORIZED: 'uncategorized',
+  });
 
   class ExtensionDb extends Dexie {
     constructor() {
@@ -72,6 +78,41 @@
     return normalizeFolderName(name).toLowerCase();
   }
 
+  function isSystemFolderId(folderId) {
+    return Object.values(SYSTEM_FOLDER_IDS).includes(String(folderId || ''));
+  }
+
+  function isUncategorizedFolderId(folderId) {
+    return String(folderId || '') === SYSTEM_FOLDER_IDS.UNCATEGORIZED;
+  }
+
+  async function ensureUncategorizedFolder() {
+    const existing = await db.folders.get(SYSTEM_FOLDER_IDS.UNCATEGORIZED);
+    if (existing) {
+      return {
+        ...existing,
+        isSystem: true,
+        systemType: SYSTEM_FOLDER_TYPES.UNCATEGORIZED,
+      };
+    }
+
+    const timestamp = nowIso();
+    const folder = {
+      folderId: SYSTEM_FOLDER_IDS.UNCATEGORIZED,
+      name: '未分類',
+      nameLower: toFolderNameLower('未分類'),
+      parentFolderId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      schemaVersion: 1,
+      isSystem: true,
+      systemType: SYSTEM_FOLDER_TYPES.UNCATEGORIZED,
+    };
+
+    await db.folders.put(folder);
+    return { ...folder };
+  }
+
   async function ensureSite({ url, title = '', tags = [] }) {
     const siteId = siteIdFromUrl(url);
     const timestamp = nowIso();
@@ -129,7 +170,15 @@
     });
 
     const sortNodes = (nodes) => {
-      nodes.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      nodes.sort((a, b) => {
+        if (a.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && b.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return -1;
+        }
+        if (b.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && a.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return 1;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
       nodes.forEach((node) => sortNodes(node.children));
     };
 
@@ -171,6 +220,10 @@
       throw new Error('folderId is required.');
     }
 
+    if (isSystemFolderId(folderId)) {
+      throw new Error('System folder cannot be renamed.');
+    }
+
     const normalizedName = normalizeFolderName(name);
     if (!normalizedName) {
       throw new Error('Folder name is required.');
@@ -195,7 +248,12 @@
       return false;
     }
 
+    if (isSystemFolderId(folderId)) {
+      throw new Error('System folder cannot be deleted.');
+    }
+
     const parentFolderId = folder.parentFolderId || null;
+    const uncategorizedFolder = await ensureUncategorizedFolder();
     const timestamp = nowIso();
 
     await db.transaction('rw', db.folders, db.siteFolders, async () => {
@@ -205,7 +263,7 @@
       });
 
       await db.siteFolders.where('folderId').equals(folderId).modify((link) => {
-        link.folderId = null;
+        link.folderId = parentFolderId || uncategorizedFolder.folderId;
         link.updatedAt = timestamp;
       });
 
@@ -216,11 +274,11 @@
   }
 
   async function listFolders() {
+    const uncategorizedFolder = await ensureUncategorizedFolder();
     const folders = await db.folders.toArray();
     const siteLinks = await db.siteFolders.toArray();
     const siteCountMap = siteLinks.reduce((map, link) => {
-      const folderId = link.folderId || null;
-      if (!folderId) return map;
+      const folderId = link.folderId || uncategorizedFolder.folderId;
       map.set(folderId, (map.get(folderId) || 0) + 1);
       return map;
     }, new Map());
@@ -229,9 +287,19 @@
       .map((folder) => ({
         ...folder,
         parentFolderId: folder.parentFolderId || null,
+        isSystem: Boolean(folder.isSystem),
+        systemType: String(folder.systemType || ''),
         siteCount: siteCountMap.get(folder.folderId) || 0,
       }))
-      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      .sort((a, b) => {
+        if (a.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && b.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return -1;
+        }
+        if (b.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && a.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return 1;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
 
     const tree = buildFolderTree(normalizedFolders);
     return {
@@ -250,6 +318,10 @@
       throw new Error('Folder not found.');
     }
 
+    if (isSystemFolderId(folderId)) {
+      throw new Error('System folder cannot be moved.');
+    }
+
     const nextParentId = targetParentFolderId || null;
     if (nextParentId === folderId) {
       throw new Error('A folder cannot be moved into itself.');
@@ -259,6 +331,10 @@
       const targetParent = await db.folders.get(nextParentId);
       if (!targetParent) {
         throw new Error('Target parent folder not found.');
+      }
+
+      if (isSystemFolderId(nextParentId)) {
+        throw new Error('Cannot move folder under system folder.');
       }
 
       let cursor = targetParent;
@@ -339,7 +415,9 @@
     }
 
     const existingLink = await db.siteFolders.get(resolvedSite.siteId);
-    if (existingLink?.folderId) {
+    const existingFolderId = String(existingLink?.folderId || '').trim();
+    const hasConcreteSiteFolder = Boolean(existingFolderId) && !isUncategorizedFolderId(existingFolderId);
+    if (hasConcreteSiteFolder) {
       const existingFolder = await db.folders.get(existingLink.folderId);
       if (existingFolder) {
         return {
@@ -373,11 +451,12 @@
   }
 
   async function ensureSiteFolderForSite({ siteId, url, title = '' }) {
+    const uncategorizedFolder = await ensureUncategorizedFolder();
     return createSiteFolderFromSite({
       siteId,
       url,
       title,
-      parentFolderId: null,
+      parentFolderId: uncategorizedFolder.folderId,
     });
   }
 
@@ -385,6 +464,7 @@
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 500;
     const normalizedQuery = String(query || '').trim().toLowerCase();
     const targetFolderId = folderId || null;
+    const useLegacyUncategorized = isUncategorizedFolderId(targetFolderId);
 
     const [sites, siteLinks, notes, markers] = await Promise.all([
       db.sites.orderBy('updatedAt').reverse().toArray(),
@@ -415,7 +495,11 @@
     return sites
       .filter((site) => {
         const assignedFolderId = folderBySite.get(site.siteId) || null;
-        if (assignedFolderId !== targetFolderId) {
+        if (useLegacyUncategorized) {
+          if (assignedFolderId !== targetFolderId && assignedFolderId !== null) {
+            return false;
+          }
+        } else if (assignedFolderId !== targetFolderId) {
           return false;
         }
 
@@ -463,6 +547,7 @@
     const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 500;
     const normalizedQuery = String(query || '').trim().toLowerCase();
     const targetFolderId = folderId || null;
+    const useLegacyUncategorized = isUncategorizedFolderId(targetFolderId);
 
     const [notes, siteLinks, sites] = await Promise.all([
       db.notes.orderBy('updatedAt').reverse().toArray(),
@@ -484,7 +569,11 @@
     return notes
       .filter((note) => {
         const assignedFolderId = folderBySite.get(note.siteId) || null;
-        if (assignedFolderId !== targetFolderId) {
+        if (useLegacyUncategorized) {
+          if (assignedFolderId !== targetFolderId && assignedFolderId !== null) {
+            return false;
+          }
+        } else if (assignedFolderId !== targetFolderId) {
           return false;
         }
 

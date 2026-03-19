@@ -27,6 +27,10 @@
     return folderId ? String(folderId) : '';
   }
 
+  function isSystemFolderNode(folderLike) {
+    return Boolean(folderLike?.isSystem) || String(folderLike?.systemType || '').length > 0;
+  }
+
   function createSiteEntry({ site, depth }) {
     const row = document.createElement('div');
     row.className = 'library-entry library-entry-site';
@@ -90,14 +94,15 @@
     return row;
   }
 
-  function createFolderRow({ folderId, name, siteCount, depth, isRoot = false }) {
+  function createFolderRow({ folderId, name, siteCount, depth, isRoot = false, isSystem = false }) {
     const normalizedFolderId = normalizeFolderId(folderId);
     const isCollapsed = collapsedFolderIds.has(normalizedFolderId);
     const row = document.createElement('div');
     row.className = 'library-entry library-entry-folder';
     row.dataset.folderId = normalizedFolderId;
     row.dataset.entryType = 'folder';
-    row.draggable = !isRoot;
+    row.dataset.isSystem = isSystem ? '1' : '0';
+    row.draggable = !isRoot && !isSystem;
     row.style.marginLeft = `${Math.max(0, depth) * 14}px`;
 
     const main = document.createElement('div');
@@ -114,7 +119,7 @@
 
     const icon = document.createElement('span');
     icon.className = 'library-entry-sub';
-    icon.textContent = isRoot ? '📂' : '📁';
+    icon.textContent = isRoot || isSystem ? '📂' : '📁';
 
     const label = document.createElement('div');
     label.className = 'library-entry-name';
@@ -131,7 +136,7 @@
     const actions = document.createElement('div');
     actions.className = 'library-entry-actions';
 
-    if (!isRoot) {
+    if (!isRoot && !isSystem) {
       const renameBtn = document.createElement('button');
       renameBtn.type = 'button';
       renameBtn.className = 'library-icon-btn library-folder-action-btn';
@@ -143,40 +148,42 @@
       actions.appendChild(renameBtn);
     }
 
-    const addWrap = document.createElement('div');
-    addWrap.className = 'library-add-wrap';
+    if (!isSystem) {
+      const addWrap = document.createElement('div');
+      addWrap.className = 'library-add-wrap';
 
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className = 'library-icon-btn library-folder-action-btn';
-    addBtn.dataset.action = 'toggle-add-menu';
-    addBtn.dataset.folderId = normalizedFolderId;
-    addBtn.title = '追加';
-    addBtn.textContent = '＋';
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'library-icon-btn library-folder-action-btn';
+      addBtn.dataset.action = 'toggle-add-menu';
+      addBtn.dataset.folderId = normalizedFolderId;
+      addBtn.title = '追加';
+      addBtn.textContent = '＋';
 
-    const menu = document.createElement('div');
-    menu.className = `library-add-menu ${openMenuFolderId === normalizedFolderId ? 'open' : ''}`;
-    menu.dataset.folderId = normalizedFolderId;
+      const menu = document.createElement('div');
+      menu.className = `library-add-menu ${openMenuFolderId === normalizedFolderId ? 'open' : ''}`;
+      menu.dataset.folderId = normalizedFolderId;
 
-    const addSiteBtn = document.createElement('button');
-    addSiteBtn.type = 'button';
-    addSiteBtn.className = 'library-add-menu-btn';
-    addSiteBtn.dataset.action = 'add-current-site';
-    addSiteBtn.dataset.parentFolderId = normalizedFolderId;
-    addSiteBtn.textContent = '現在のサイトを追加';
+      const addSiteBtn = document.createElement('button');
+      addSiteBtn.type = 'button';
+      addSiteBtn.className = 'library-add-menu-btn';
+      addSiteBtn.dataset.action = 'add-current-site';
+      addSiteBtn.dataset.parentFolderId = normalizedFolderId;
+      addSiteBtn.textContent = '現在のサイトを追加';
 
-    const addFolderBtn = document.createElement('button');
-    addFolderBtn.type = 'button';
-    addFolderBtn.className = 'library-add-menu-btn';
-    addFolderBtn.dataset.action = 'create-folder';
-    addFolderBtn.dataset.parentFolderId = normalizedFolderId;
-    addFolderBtn.textContent = 'フォルダを作成';
+      const addFolderBtn = document.createElement('button');
+      addFolderBtn.type = 'button';
+      addFolderBtn.className = 'library-add-menu-btn';
+      addFolderBtn.dataset.action = 'create-folder';
+      addFolderBtn.dataset.parentFolderId = normalizedFolderId;
+      addFolderBtn.textContent = 'フォルダを作成';
 
-    menu.appendChild(addSiteBtn);
-    menu.appendChild(addFolderBtn);
-    addWrap.appendChild(addBtn);
-    addWrap.appendChild(menu);
-    actions.appendChild(addWrap);
+      menu.appendChild(addSiteBtn);
+      menu.appendChild(addFolderBtn);
+      addWrap.appendChild(addBtn);
+      addWrap.appendChild(menu);
+      actions.appendChild(addWrap);
+    }
 
     row.appendChild(main);
     row.appendChild(actions);
@@ -191,6 +198,7 @@
       siteCount: parentNode.siteCount || 0,
       depth,
       isRoot: false,
+      isSystem: isSystemFolderNode(parentNode),
     });
     explorerElement.appendChild(folderRow);
 
@@ -243,64 +251,26 @@
 
     if (!hasInitializedCollapseState) {
       folderFlatList.forEach((folder) => {
-        collapsedFolderIds.add(normalizeFolderId(folder.folderId));
+        if (!isSystemFolderNode(folder)) {
+          collapsedFolderIds.add(normalizeFolderId(folder.folderId));
+        }
       });
       hasInitializedCollapseState = true;
     }
 
     libraryExplorer.innerHTML = '';
 
-    const rootSitesResponse = await sendDbOp('library.listSites', {
-      folderId: null,
-      query: searchQuery,
-      limit: 800,
-    });
-
-    const rootNotesResponse = await sendDbOp('library.listNotes', {
-      folderId: null,
-      query: searchQuery,
-      limit: 800,
-    });
-
-    if (!rootSitesResponse?.success) {
-      throw new Error(rootSitesResponse?.error || 'サイト一覧の取得に失敗しました。');
-    }
-
-    if (!rootNotesResponse?.success) {
-      throw new Error(rootNotesResponse?.error || 'メモ一覧の取得に失敗しました。');
-    }
-
-    const rootSites = Array.isArray(rootSitesResponse.data) ? rootSitesResponse.data : [];
-    const rootNotes = Array.isArray(rootNotesResponse.data) ? rootNotesResponse.data : [];
-    const rootRow = createFolderRow({
-      folderId: null,
-      name: '未分類',
-      siteCount: rootSites.length + rootNotes.length,
-      depth: 0,
-      isRoot: true,
-    });
-
-    libraryExplorer.appendChild(rootRow);
-    if (!collapsedFolderIds.has('')) {
-      rootSites.forEach((site) => {
-        libraryExplorer.appendChild(createSiteEntry({ site, depth: 1 }));
+    for (const folderNode of folderTree) {
+      await renderFolderWithChildren({
+        parentNode: folderNode,
+        depth: 0,
+        explorerElement: libraryExplorer,
       });
-      rootNotes.forEach((note) => {
-        libraryExplorer.appendChild(createNoteEntry({ note, depth: 1 }));
-      });
-
-      for (const folderNode of folderTree) {
-        await renderFolderWithChildren({
-          parentNode: folderNode,
-          depth: 1,
-          explorerElement: libraryExplorer,
-        });
-      }
     }
 
     setStatus(
       libraryStatus,
-      `未分類 ${rootSites.length + rootNotes.length}件 / フォルダ${folderFlatList.length}件`
+      `フォルダ${folderFlatList.length}件`
     );
   }
 
@@ -396,6 +366,12 @@
 
   async function handleDropOnFolderRow({ targetRow, libraryStatus, elements }) {
     if (!dragPayload || !targetRow) return;
+
+    const targetIsSystem = targetRow.dataset.isSystem === '1';
+    if (targetIsSystem && dragPayload.type === 'folder') {
+      setStatus(libraryStatus, 'システムフォルダ配下へフォルダは移動できません。', true);
+      return;
+    }
 
     const targetFolderId = normalizeFolderId(targetRow.dataset.folderId) || null;
 
