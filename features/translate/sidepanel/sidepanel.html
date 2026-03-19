@@ -36,6 +36,7 @@
     <button id="modeAiBtn" class="mode-btn" role="tab" aria-selected="false">Ask AI</button>
     <button id="modeNotesBtn" class="mode-btn" role="tab" aria-selected="false">Notes</button>
     <button id="modeMarkersBtn" class="mode-btn" role="tab" aria-selected="false">Markers</button>
+    <button id="modeLibraryBtn" class="mode-btn" role="tab" aria-selected="false">Library</button>
   </div>
 
   <div id="translateWorkspace">
@@ -249,6 +250,23 @@
     </div>
   </div>
 
+  <div id="libraryWorkspace" class="hidden">
+    <div class="library-layout">
+      <div class="library-toolbar">
+        <button id="libraryCreateFolderBtn" class="library-create-folder-btn" type="button" title="フォルダを新規作成" aria-label="フォルダを新規作成">＋</button>
+        <input id="librarySearchInput" class="library-search-input" type="search" placeholder="タイトル・URL・メモで検索">
+      </div>
+      <div id="libraryExplorer" class="library-explorer"></div>
+      <div id="libraryStatus" class="notes-status"></div>
+      <div id="libraryTrash" class="library-entry library-trash-row" data-entry-type="trash">
+        <div class="library-entry-main">
+          <span class="library-entry-sub">🗑</span>
+          <div class="library-entry-name">ゴミ箱（ここにドロップで削除）</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings Modal -->
   <div id="settingsModal" class="modal hidden">
     <div class="modal-overlay"></div>
@@ -322,6 +340,7 @@
   <script src="../../ai/sidepanel/ai-chat.js"></script>
   <script src="../../notes/sidepanel/note-panel.js"></script>
   <script src="../../marker/sidepanel/marker-panel.js"></script>
+  <script src="../../library/sidepanel/library-panel.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

@@ -7,6 +7,7 @@ importScripts('../vendor/dexie.min.js', './db/repository.js');
 const DB_OPERATION_HANDLERS = Object.freeze({
   'site.ensure': (repo, payload) => repo.ensureSite(payload),
   'site.getByUrl': (repo, payload) => repo.getSiteByUrl(payload.url),
+  'site.delete': (repo, payload) => repo.deleteSite(payload.siteId),
   'site.setTags': (repo, payload) => repo.setSiteTags(payload),
 
   'chat.save': (repo, payload) => repo.saveChat(payload),
@@ -27,6 +28,18 @@ const DB_OPERATION_HANDLERS = Object.freeze({
   'marker.upsert': (repo, payload) => repo.upsertMarker(payload),
   'marker.listBySite': (repo, payload) => repo.getMarkersBySite(payload),
   'marker.delete': (repo, payload) => repo.deleteMarker(payload.markerId),
+
+  'folder.create': (repo, payload) => repo.createFolder(payload),
+  'folder.rename': (repo, payload) => repo.renameFolder(payload),
+  'folder.move': (repo, payload) => repo.moveFolder(payload),
+  'folder.delete': (repo, payload) => repo.deleteFolder(payload),
+  'folder.list': (repo, payload) => repo.listFolders(payload),
+
+  'library.createSiteFolder': (repo, payload) => repo.createSiteFolderFromSite(payload),
+  'library.moveSite': (repo, payload) => repo.moveSiteToFolder(payload),
+  'library.snapshot': (repo, payload) => repo.getLibrarySnapshot(payload),
+  'library.listSites': (repo, payload) => repo.listLibrarySites(payload),
+  'library.listNotes': (repo, payload) => repo.listLibraryNotes(payload),
 
   'tag.rename': (repo, payload) => repo.renameTag(payload),
   'tag.search': (repo, payload) => repo.findByTag(payload),

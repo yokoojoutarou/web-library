@@ -14,6 +14,7 @@ A seamless Chrome sidebar translation extension powered by the DeepL API. Select
 - 💬 **Ask AI (scaffold)** — Chat-style panel to ask about selected text (stub response)
 - ⚙️ **AI provider settings** — Register API key per provider and switch models dynamically
 - 🔄 **Auto model discovery** — Models are fetched automatically from the selected provider
+- 🗂️ **Library (MVP)** — Organize saved sites and notes with folder tree, move sites, and search by title/URL/note text
 - 🧠 **Context-aware AI** — Uses full page content by default and prioritizes selected text when present
 - 🧹 **Noise-reduced context** — Filters navigation/ads/footer-like content before sending page context to AI
 - 🎨 **Dark theme UI** — Minimal black-based design for a distraction-free experience
@@ -66,6 +67,9 @@ chrome-translate-extension/
 │   ├── ai/
 │   │   └── sidepanel/
 │   │       └── ai-chat.js    # AI chat UI logic scaffold
+│   ├── library/
+│   │   └── sidepanel/
+│   │       └── library-panel.js # Library UI logic (folders/sites/notes)
 │   └── translate/
 │       ├── content.js # Content script — text selection detection
 │       └── sidepanel/

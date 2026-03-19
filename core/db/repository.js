@@ -2,7 +2,13 @@
 
 (function initExtensionDb(global) {
   const DB_NAME = 'deepl_translate_extension_db';
-  const DB_VERSION = 3;
+  const DB_VERSION = 4;
+  const SYSTEM_FOLDER_IDS = Object.freeze({
+    UNCATEGORIZED: '__system_uncategorized__',
+  });
+  const SYSTEM_FOLDER_TYPES = Object.freeze({
+    UNCATEGORIZED: 'uncategorized',
+  });
 
   class ExtensionDb extends Dexie {
     constructor() {
@@ -22,6 +28,8 @@
         chatThreads: '&threadId,siteId,updatedAt,createdAt,[siteId+updatedAt]',
         notes: '&noteId,siteId,createdAt,updatedAt,*tags,[siteId+updatedAt]',
         markers: '&markerId,siteId,createdAt,updatedAt,color,*tags,[siteId+updatedAt]',
+        folders: '&folderId,parentFolderId,updatedAt,[parentFolderId+updatedAt],nameLower',
+        siteFolders: '&siteId,folderId,updatedAt,[folderId+updatedAt]',
       });
     }
   }
@@ -62,6 +70,49 @@
     return [...set];
   }
 
+  function normalizeFolderName(name) {
+    return String(name || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function toFolderNameLower(name) {
+    return normalizeFolderName(name).toLowerCase();
+  }
+
+  function isSystemFolderId(folderId) {
+    return Object.values(SYSTEM_FOLDER_IDS).includes(String(folderId || ''));
+  }
+
+  function isUncategorizedFolderId(folderId) {
+    return String(folderId || '') === SYSTEM_FOLDER_IDS.UNCATEGORIZED;
+  }
+
+  async function ensureUncategorizedFolder() {
+    const existing = await db.folders.get(SYSTEM_FOLDER_IDS.UNCATEGORIZED);
+    if (existing) {
+      return {
+        ...existing,
+        isSystem: true,
+        systemType: SYSTEM_FOLDER_TYPES.UNCATEGORIZED,
+      };
+    }
+
+    const timestamp = nowIso();
+    const folder = {
+      folderId: SYSTEM_FOLDER_IDS.UNCATEGORIZED,
+      name: '未分類',
+      nameLower: toFolderNameLower('未分類'),
+      parentFolderId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      schemaVersion: 1,
+      isSystem: true,
+      systemType: SYSTEM_FOLDER_TYPES.UNCATEGORIZED,
+    };
+
+    await db.folders.put(folder);
+    return { ...folder };
+  }
+
   async function ensureSite({ url, title = '', tags = [] }) {
     const siteId = siteIdFromUrl(url);
     const timestamp = nowIso();
@@ -91,6 +142,638 @@
 
     await db.sites.put(site);
     return { ...site };
+  }
+
+  function buildFolderTree(folders) {
+    const byId = new Map();
+    const roots = [];
+
+    folders.forEach((folder) => {
+      byId.set(folder.folderId, {
+        ...folder,
+        children: [],
+      });
+    });
+
+    folders.forEach((folder) => {
+      const node = byId.get(folder.folderId);
+      if (!node) return;
+
+      const parentId = folder.parentFolderId || null;
+      const parent = parentId ? byId.get(parentId) : null;
+
+      if (parent) {
+        parent.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+
+    const sortNodes = (nodes) => {
+      nodes.sort((a, b) => {
+        if (a.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && b.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return -1;
+        }
+        if (b.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && a.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return 1;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+      nodes.forEach((node) => sortNodes(node.children));
+    };
+
+    sortNodes(roots);
+    return roots;
+  }
+
+  async function createFolder({ name, parentFolderId = null }) {
+    const normalizedName = normalizeFolderName(name);
+    if (!normalizedName) {
+      throw new Error('Folder name is required.');
+    }
+
+    const timestamp = nowIso();
+    const resolvedParent = parentFolderId || null;
+    if (resolvedParent) {
+      const parent = await db.folders.get(resolvedParent);
+      if (!parent) {
+        throw new Error('Parent folder not found.');
+      }
+    }
+
+    const folder = {
+      folderId: global.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      name: normalizedName,
+      nameLower: toFolderNameLower(normalizedName),
+      parentFolderId: resolvedParent,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      schemaVersion: 1,
+    };
+
+    await db.folders.put(folder);
+    return { ...folder };
+  }
+
+  async function renameFolder({ folderId, name }) {
+    if (!folderId) {
+      throw new Error('folderId is required.');
+    }
+
+    if (isSystemFolderId(folderId)) {
+      throw new Error('System folder cannot be renamed.');
+    }
+
+    const normalizedName = normalizeFolderName(name);
+    if (!normalizedName) {
+      throw new Error('Folder name is required.');
+    }
+
+    const updatedCount = await db.folders.update(folderId, {
+      name: normalizedName,
+      nameLower: toFolderNameLower(normalizedName),
+      updatedAt: nowIso(),
+    });
+
+    if (updatedCount === 0) {
+      throw new Error('Folder not found.');
+    }
+
+    return db.folders.get(folderId);
+  }
+
+  async function deleteFolder({ folderId }) {
+    if (!folderId) {
+      throw new Error('folderId is required.');
+    }
+
+    const folder = await db.folders.get(folderId);
+    if (!folder) {
+      return false;
+    }
+
+    if (isSystemFolderId(folderId)) {
+      throw new Error('System folder cannot be deleted.');
+    }
+
+    const parentFolderId = folder.parentFolderId || null;
+    const uncategorizedFolder = await ensureUncategorizedFolder();
+    const timestamp = nowIso();
+
+    await db.transaction('rw', db.folders, db.siteFolders, async () => {
+      await db.folders.where('parentFolderId').equals(folderId).modify((child) => {
+        child.parentFolderId = parentFolderId;
+        child.updatedAt = timestamp;
+      });
+
+      await db.siteFolders.where('folderId').equals(folderId).modify((link) => {
+        link.folderId = parentFolderId || uncategorizedFolder.folderId;
+        link.updatedAt = timestamp;
+      });
+
+      await db.folders.delete(folderId);
+    });
+
+    return true;
+  }
+
+  async function listFolders() {
+    const uncategorizedFolder = await ensureUncategorizedFolder();
+    const folders = await db.folders.toArray();
+    const siteLinks = await db.siteFolders.toArray();
+    const siteCountMap = siteLinks.reduce((map, link) => {
+      const folderId = link.folderId || uncategorizedFolder.folderId;
+      map.set(folderId, (map.get(folderId) || 0) + 1);
+      return map;
+    }, new Map());
+
+    const normalizedFolders = folders
+      .map((folder) => ({
+        ...folder,
+        parentFolderId: folder.parentFolderId || null,
+        isSystem: Boolean(folder.isSystem),
+        systemType: String(folder.systemType || ''),
+        siteCount: siteCountMap.get(folder.folderId) || 0,
+      }))
+      .sort((a, b) => {
+        if (a.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && b.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return -1;
+        }
+        if (b.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && a.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return 1;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+
+    const tree = buildFolderTree(normalizedFolders);
+    return {
+      folders: normalizedFolders,
+      tree,
+    };
+  }
+
+  async function moveFolder({ folderId, targetParentFolderId = null }) {
+    if (!folderId) {
+      throw new Error('folderId is required.');
+    }
+
+    const source = await db.folders.get(folderId);
+    if (!source) {
+      throw new Error('Folder not found.');
+    }
+
+    if (isSystemFolderId(folderId)) {
+      throw new Error('System folder cannot be moved.');
+    }
+
+    const nextParentId = targetParentFolderId || null;
+    if (nextParentId === folderId) {
+      throw new Error('A folder cannot be moved into itself.');
+    }
+
+    if (nextParentId) {
+      const targetParent = await db.folders.get(nextParentId);
+      if (!targetParent) {
+        throw new Error('Target parent folder not found.');
+      }
+
+      if (isSystemFolderId(nextParentId)) {
+        throw new Error('Cannot move folder under system folder.');
+      }
+
+      let cursor = targetParent;
+      while (cursor) {
+        if (cursor.folderId === folderId) {
+          throw new Error('A folder cannot be moved into its descendant.');
+        }
+        if (!cursor.parentFolderId) break;
+        cursor = await db.folders.get(cursor.parentFolderId);
+      }
+    }
+
+    const timestamp = nowIso();
+    await db.folders.update(folderId, {
+      parentFolderId: nextParentId,
+      updatedAt: timestamp,
+    });
+
+    return db.folders.get(folderId);
+  }
+
+  async function moveSiteToFolder({ siteId, url, title = '', targetFolderId = null }) {
+    const timestamp = nowIso();
+    let resolvedSiteId = String(siteId || '').trim();
+
+    if (!resolvedSiteId) {
+      if (!url) {
+        throw new Error('siteId or url is required.');
+      }
+      const site = await ensureSite({ url, title });
+      resolvedSiteId = site.siteId;
+    } else {
+      const existingSite = await db.sites.get(resolvedSiteId);
+      if (!existingSite) {
+        throw new Error('Site not found.');
+      }
+    }
+
+    if (targetFolderId) {
+      const target = await db.folders.get(targetFolderId);
+      if (!target) {
+        throw new Error('Target folder not found.');
+      }
+    }
+
+    const existing = await db.siteFolders.get(resolvedSiteId);
+    const link = {
+      siteId: resolvedSiteId,
+      folderId: targetFolderId || null,
+      createdAt: existing?.createdAt || timestamp,
+      updatedAt: timestamp,
+      schemaVersion: 1,
+    };
+
+    await db.siteFolders.put(link);
+    await db.sites.update(resolvedSiteId, { updatedAt: timestamp });
+    return { ...link };
+  }
+
+  async function createSiteFolderFromSite({ siteId, url, title = '', parentFolderId = null }) {
+    let resolvedSite = null;
+
+    if (siteId) {
+      resolvedSite = await db.sites.get(siteId);
+      if (!resolvedSite) {
+        throw new Error('Site not found.');
+      }
+    } else {
+      if (!url) {
+        throw new Error('siteId or url is required.');
+      }
+      resolvedSite = await ensureSite({ url, title });
+    }
+
+    const normalizedTitle = normalizeFolderName(title || resolvedSite.title || '');
+    if (!normalizedTitle && url) {
+      await ensureSite({ url, title: String(url || '') });
+      resolvedSite = await db.sites.get(resolvedSite.siteId);
+    }
+
+    if (!resolvedSite?.siteId) {
+      throw new Error('Failed to resolve site for folder creation.');
+    }
+
+    const existingLink = await db.siteFolders.get(resolvedSite.siteId);
+    const existingFolderId = String(existingLink?.folderId || '').trim();
+    const hasConcreteSiteFolder = Boolean(existingFolderId) && !isUncategorizedFolderId(existingFolderId);
+    if (hasConcreteSiteFolder) {
+      const existingFolder = await db.folders.get(existingLink.folderId);
+      if (existingFolder) {
+        return {
+          created: false,
+          folder: { ...existingFolder },
+          link: { ...existingLink },
+          site: { ...resolvedSite },
+        };
+      }
+    }
+
+    const folderName = normalizeFolderName(
+      resolvedSite.title || title || resolvedSite.url || 'Untitled Site'
+    );
+    const folder = await createFolder({
+      name: folderName || 'Untitled Site',
+      parentFolderId,
+    });
+
+    const link = await moveSiteToFolder({
+      siteId: resolvedSite.siteId,
+      targetFolderId: folder.folderId,
+    });
+
+    return {
+      created: true,
+      folder,
+      link,
+      site: { ...resolvedSite },
+    };
+  }
+
+  async function ensureSiteFolderForSite({ siteId, url, title = '' }) {
+    const uncategorizedFolder = await ensureUncategorizedFolder();
+    return createSiteFolderFromSite({
+      siteId,
+      url,
+      title,
+      parentFolderId: uncategorizedFolder.folderId,
+    });
+  }
+
+  async function getLibrarySnapshot({ query = '', limitPerFolder = 800 } = {}) {
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    const safeLimit = Number.isFinite(limitPerFolder)
+      ? Math.max(1, Math.min(2000, Math.floor(limitPerFolder)))
+      : 800;
+
+    const uncategorizedFolder = await ensureUncategorizedFolder();
+
+    const [folders, siteLinks, sites, notes, markers] = await Promise.all([
+      db.folders.toArray(),
+      db.siteFolders.toArray(),
+      db.sites.orderBy('updatedAt').reverse().toArray(),
+      db.notes.orderBy('updatedAt').reverse().toArray(),
+      db.markers.toArray(),
+    ]);
+
+    const folderBySite = siteLinks.reduce((map, link) => {
+      if (!link?.siteId) return map;
+      map.set(link.siteId, link.folderId || uncategorizedFolder.folderId);
+      return map;
+    }, new Map());
+
+    const notesBySite = notes.reduce((map, note) => {
+      if (!note?.siteId) return map;
+      const bucket = map.get(note.siteId) || [];
+      bucket.push(note);
+      map.set(note.siteId, bucket);
+      return map;
+    }, new Map());
+
+    const markerCountBySite = markers.reduce((map, marker) => {
+      if (!marker?.siteId) return map;
+      map.set(marker.siteId, (map.get(marker.siteId) || 0) + 1);
+      return map;
+    }, new Map());
+
+    const siteCountByFolder = new Map();
+    const siteById = new Map();
+    sites.forEach((site) => {
+      if (!site?.siteId) return;
+      siteById.set(site.siteId, site);
+      const assignedFolderId = folderBySite.get(site.siteId) || uncategorizedFolder.folderId;
+      folderBySite.set(site.siteId, assignedFolderId);
+      siteCountByFolder.set(assignedFolderId, (siteCountByFolder.get(assignedFolderId) || 0) + 1);
+    });
+
+    const normalizedFolders = folders
+      .map((folder) => ({
+        ...folder,
+        parentFolderId: folder.parentFolderId || null,
+        isSystem: Boolean(folder.isSystem),
+        systemType: String(folder.systemType || ''),
+        siteCount: siteCountByFolder.get(folder.folderId) || 0,
+      }))
+      .sort((a, b) => {
+        if (a.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && b.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return -1;
+        }
+        if (b.systemType === SYSTEM_FOLDER_TYPES.UNCATEGORIZED && a.systemType !== SYSTEM_FOLDER_TYPES.UNCATEGORIZED) {
+          return 1;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+
+    const tree = buildFolderTree(normalizedFolders);
+    const folderSites = {};
+    const folderNotes = {};
+    const folderSiteCount = new Map();
+    const folderNoteCount = new Map();
+
+    const pushFolderSite = (folderId, site) => {
+      const key = String(folderId || '').trim();
+      const currentCount = folderSiteCount.get(key) || 0;
+      if (currentCount >= safeLimit) return;
+      const bucket = folderSites[key] || [];
+      bucket.push(site);
+      folderSites[key] = bucket;
+      folderSiteCount.set(key, currentCount + 1);
+    };
+
+    const pushFolderNote = (folderId, note) => {
+      const key = String(folderId || '').trim();
+      const currentCount = folderNoteCount.get(key) || 0;
+      if (currentCount >= safeLimit) return;
+      const bucket = folderNotes[key] || [];
+      bucket.push(note);
+      folderNotes[key] = bucket;
+      folderNoteCount.set(key, currentCount + 1);
+    };
+
+    sites.forEach((site) => {
+      const siteId = String(site?.siteId || '').trim();
+      if (!siteId) return;
+      const assignedFolderId = folderBySite.get(siteId) || uncategorizedFolder.folderId;
+      const siteNotes = notesBySite.get(siteId) || [];
+
+      if (normalizedQuery) {
+        const lowerUrl = String(site.url || '').toLowerCase();
+        const lowerTitle = String(site.title || '').toLowerCase();
+        const hasQueryInSite = lowerUrl.includes(normalizedQuery) || lowerTitle.includes(normalizedQuery);
+        const hasQueryInNotes = siteNotes.some((note) => String(note.markdown || '').toLowerCase().includes(normalizedQuery));
+        if (!hasQueryInSite && !hasQueryInNotes) {
+          return;
+        }
+      }
+
+      pushFolderSite(assignedFolderId, {
+        siteId,
+        url: site.url,
+        title: site.title || site.url,
+        folderId: assignedFolderId,
+        updatedAt: site.updatedAt,
+        noteCount: siteNotes.length,
+        markerCount: markerCountBySite.get(siteId) || 0,
+      });
+    });
+
+    notes.forEach((note) => {
+      const siteId = String(note?.siteId || '').trim();
+      if (!siteId) return;
+
+      const assignedFolderId = folderBySite.get(siteId) || uncategorizedFolder.folderId;
+      if (normalizedQuery) {
+        const markdown = String(note.markdown || '').toLowerCase();
+        if (!markdown.includes(normalizedQuery)) {
+          const site = siteById.get(siteId);
+          const siteUrl = String(site?.url || '').toLowerCase();
+          const siteTitle = String(site?.title || '').toLowerCase();
+          if (!siteUrl.includes(normalizedQuery) && !siteTitle.includes(normalizedQuery)) {
+            return;
+          }
+        }
+      }
+
+      const site = siteById.get(siteId);
+      pushFolderNote(assignedFolderId, {
+        noteId: note.noteId,
+        siteId,
+        folderId: assignedFolderId,
+        title: deriveNoteTitle(note.markdown),
+        markdown: note.markdown || '',
+        updatedAt: note.updatedAt,
+        siteTitle: String(site?.title || site?.url || siteId),
+        siteUrl: String(site?.url || ''),
+      });
+    });
+
+    return {
+      folders: normalizedFolders,
+      tree,
+      folderSites,
+      folderNotes,
+      summary: {
+        folderCount: normalizedFolders.length,
+        siteCount: sites.length,
+        noteCount: notes.length,
+      },
+    };
+  }
+
+  async function listLibrarySites({ folderId = null, query = '', limit = 500 } = {}) {
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 500;
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    const targetFolderId = folderId || null;
+    const useLegacyUncategorized = isUncategorizedFolderId(targetFolderId);
+
+    const [sites, siteLinks, notes, markers] = await Promise.all([
+      db.sites.orderBy('updatedAt').reverse().toArray(),
+      db.siteFolders.toArray(),
+      db.notes.toArray(),
+      db.markers.toArray(),
+    ]);
+
+    const folderBySite = siteLinks.reduce((map, link) => {
+      map.set(link.siteId, link.folderId || null);
+      return map;
+    }, new Map());
+
+    const notesBySite = notes.reduce((map, note) => {
+      if (!note?.siteId) return map;
+      const bucket = map.get(note.siteId) || [];
+      bucket.push(note);
+      map.set(note.siteId, bucket);
+      return map;
+    }, new Map());
+
+    const markersBySiteCount = markers.reduce((map, marker) => {
+      if (!marker?.siteId) return map;
+      map.set(marker.siteId, (map.get(marker.siteId) || 0) + 1);
+      return map;
+    }, new Map());
+
+    return sites
+      .filter((site) => {
+        const assignedFolderId = folderBySite.get(site.siteId) || null;
+        if (useLegacyUncategorized) {
+          if (assignedFolderId !== targetFolderId && assignedFolderId !== null) {
+            return false;
+          }
+        } else if (assignedFolderId !== targetFolderId) {
+          return false;
+        }
+
+        if (!normalizedQuery) {
+          return true;
+        }
+
+        const url = String(site.url || '').toLowerCase();
+        const title = String(site.title || '').toLowerCase();
+        if (url.includes(normalizedQuery) || title.includes(normalizedQuery)) {
+          return true;
+        }
+
+        const siteNotes = notesBySite.get(site.siteId) || [];
+        return siteNotes.some((note) => String(note.markdown || '').toLowerCase().includes(normalizedQuery));
+      })
+      .map((site) => {
+        const siteNotes = notesBySite.get(site.siteId) || [];
+        return {
+          siteId: site.siteId,
+          url: site.url,
+          title: site.title || site.url,
+          folderId: folderBySite.get(site.siteId) || null,
+          updatedAt: site.updatedAt,
+          noteCount: siteNotes.length,
+          markerCount: markersBySiteCount.get(site.siteId) || 0,
+        };
+      })
+      .slice(0, safeLimit);
+  }
+
+  function deriveNoteTitle(markdown) {
+    const text = String(markdown || '')
+      .replace(/^#+\s*/gm, '')
+      .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+      .replace(/[>*_`~\-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!text) return 'Untitled Note';
+    return text.length > 48 ? `${text.slice(0, 47)}…` : text;
+  }
+
+  async function listLibraryNotes({ folderId = null, query = '', limit = 500 } = {}) {
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, Math.floor(limit))) : 500;
+    const normalizedQuery = String(query || '').trim().toLowerCase();
+    const targetFolderId = folderId || null;
+    const useLegacyUncategorized = isUncategorizedFolderId(targetFolderId);
+
+    const [notes, siteLinks, sites] = await Promise.all([
+      db.notes.orderBy('updatedAt').reverse().toArray(),
+      db.siteFolders.toArray(),
+      db.sites.toArray(),
+    ]);
+
+    const folderBySite = siteLinks.reduce((map, link) => {
+      map.set(link.siteId, link.folderId || null);
+      return map;
+    }, new Map());
+
+    const siteById = sites.reduce((map, site) => {
+      if (!site?.siteId) return map;
+      map.set(site.siteId, site);
+      return map;
+    }, new Map());
+
+    return notes
+      .filter((note) => {
+        const assignedFolderId = folderBySite.get(note.siteId) || null;
+        if (useLegacyUncategorized) {
+          if (assignedFolderId !== targetFolderId && assignedFolderId !== null) {
+            return false;
+          }
+        } else if (assignedFolderId !== targetFolderId) {
+          return false;
+        }
+
+        if (!normalizedQuery) {
+          return true;
+        }
+
+        const markdown = String(note.markdown || '').toLowerCase();
+        if (markdown.includes(normalizedQuery)) {
+          return true;
+        }
+
+        const site = siteById.get(note.siteId);
+        const siteUrl = String(site?.url || '').toLowerCase();
+        const siteTitle = String(site?.title || '').toLowerCase();
+        return siteUrl.includes(normalizedQuery) || siteTitle.includes(normalizedQuery);
+      })
+      .map((note) => {
+        const site = siteById.get(note.siteId);
+        return {
+          noteId: note.noteId,
+          siteId: note.siteId,
+          folderId: folderBySite.get(note.siteId) || null,
+          title: deriveNoteTitle(note.markdown),
+          markdown: note.markdown || '',
+          updatedAt: note.updatedAt,
+          siteTitle: String(site?.title || site?.url || note.siteId || ''),
+          siteUrl: String(site?.url || ''),
+        };
+      })
+      .slice(0, safeLimit);
   }
 
   function rangeBySiteAndUpdatedAt(siteId) {
@@ -228,14 +911,21 @@
       .toArray();
   }
 
-  async function upsertNote({ noteId, siteId, url, markdown = '', sourceLinks = [], tags = [] }) {
+  async function upsertNote({ noteId, siteId, url, title = '', markdown = '', sourceLinks = [], tags = [] }) {
     const timestamp = nowIso();
-    const id = siteId || (url ? siteIdFromUrl(url) : '');
+    let id = siteId || (url ? siteIdFromUrl(url) : '');
     if (!id) throw new Error('siteId or url is required.');
 
     if (url) {
-      await ensureSite({ url });
+      const site = await ensureSite({ url, title });
+      id = site.siteId;
     }
+
+    await ensureSiteFolderForSite({
+      siteId: id,
+      url,
+      title,
+    });
 
     const resolvedNoteId = noteId || global.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const existing = await db.notes.get(resolvedNoteId);
@@ -277,15 +967,22 @@
     return true;
   }
 
-  async function upsertMarker({ markerId, siteId, url, color, rangeDescriptor, domLocator, textQuote = '', tags = [] }) {
+  async function upsertMarker({ markerId, siteId, url, title = '', color, rangeDescriptor, domLocator, textQuote = '', tags = [] }) {
     const timestamp = nowIso();
-    const id = siteId || (url ? siteIdFromUrl(url) : '');
+    let id = siteId || (url ? siteIdFromUrl(url) : '');
     if (!id) throw new Error('siteId or url is required.');
     if (!color) throw new Error('color is required.');
 
     if (url) {
-      await ensureSite({ url });
+      const site = await ensureSite({ url, title });
+      id = site.siteId;
     }
+
+    await ensureSiteFolderForSite({
+      siteId: id,
+      url,
+      title,
+    });
 
     const resolvedMarkerId = markerId || global.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const existing = await db.markers.get(resolvedMarkerId);
@@ -384,6 +1081,34 @@
     return db.sites.get(siteId);
   }
 
+  async function deleteSite(siteId) {
+    const id = String(siteId || '').trim();
+    if (!id) return false;
+
+    const site = await db.sites.get(id);
+    if (!site) return false;
+
+    await db.transaction(
+      'rw',
+      db.sites,
+      db.siteFolders,
+      db.notes,
+      db.markers,
+      db.chatThreads,
+      db.chats,
+      async () => {
+        await db.siteFolders.where('siteId').equals(id).delete();
+        await db.notes.where('siteId').equals(id).delete();
+        await db.markers.where('siteId').equals(id).delete();
+        await db.chatThreads.where('siteId').equals(id).delete();
+        await db.chats.where('siteId').equals(id).delete();
+        await db.sites.delete(id);
+      }
+    );
+
+    return true;
+  }
+
   global.ExtensionRepository = {
     db,
     normalizeTags,
@@ -403,10 +1128,21 @@
     renameTag,
     findByTag,
     getSiteByUrl,
+    deleteSite,
     createThread,
     getThread,
     listThreads,
     updateThreadTitle,
     appendThreadMessages,
+    createFolder,
+    renameFolder,
+    moveFolder,
+    deleteFolder,
+    listFolders,
+    moveSiteToFolder,
+    createSiteFolderFromSite,
+    getLibrarySnapshot,
+    listLibrarySites,
+    listLibraryNotes,
   };
 })(globalThis);

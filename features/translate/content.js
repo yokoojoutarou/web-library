@@ -764,6 +764,7 @@
         const textQuote = normalizeText(range.toString()).slice(0, 600);
         const response = await sendDbOp('marker.upsert', {
             url: location.href,
+            title: document.title,
             color,
             rangeDescriptor,
             domLocator: {
@@ -792,6 +793,7 @@
         const response = await sendDbOp('marker.upsert', {
             markerId,
             url: location.href,
+            title: document.title,
             color,
             rangeDescriptor: existing.rangeDescriptor,
             domLocator: existing.domLocator,

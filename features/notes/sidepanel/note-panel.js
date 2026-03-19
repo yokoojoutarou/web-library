@@ -5,6 +5,7 @@
   let currentSourceLinks = [];
   let currentPageNotes = [];
   let allNotes = [];
+  let pendingExternalOpenNoteId = null;
   let latestSelectedText = '';
   let autoSaveTimer = null;
   let isSaving = false;
@@ -269,6 +270,7 @@
       const response = await sendDbOp('note.upsert', {
         noteId: currentNoteId,
         url: activePageUrl,
+        title: activePageTitle,
         markdown,
         sourceLinks: currentSourceLinks,
         tags: parseTags(notesTagsInput.value),
@@ -339,6 +341,32 @@
       setStatus(notesStatus, error?.message || '削除に失敗しました。', true);
       return false;
     }
+  }
+
+  async function openNoteById({ noteId, notesMarkdownInput, notesTagsInput, notesPreview, notesStatus, notesPageList, notesAllList, notesLayout, notesBackBtn, notesSheetTitle }) {
+    const targetNoteId = String(noteId || '').trim();
+    if (!targetNoteId) return false;
+
+    await refreshNotes({ notesPageList, notesAllList });
+    const targetNote = findNoteById(targetNoteId);
+    if (!targetNote) {
+      setStatus(notesStatus, '指定されたメモが見つかりません。', true);
+      return false;
+    }
+
+    openNote(targetNote, notesMarkdownInput, notesTagsInput, notesPreview);
+    renderAllLists(notesPageList, notesAllList);
+    setStatus(notesStatus, 'メモを読み込みました。');
+    setNotesViewMode({ notesLayout, notesBackBtn, mode: 'editing' });
+    setSingleSheetMode({
+      notesSheetTitle,
+      notesMarkdownInput,
+      notesPreview,
+      isEditing: true,
+    });
+    notesMarkdownInput.focus();
+    notesMarkdownInput.setSelectionRange(notesMarkdownInput.value.length, notesMarkdownInput.value.length);
+    return true;
   }
 
   function appendSelectionQuote(markdownInput, notesPreview, notesStatus) {
@@ -598,10 +626,50 @@
           if (!urlChanged) {
             await refreshNotes({ notesPageList, notesAllList });
           }
+
+          if (pendingExternalOpenNoteId) {
+            const targetId = pendingExternalOpenNoteId;
+            pendingExternalOpenNoteId = null;
+            await openNoteById({
+              noteId: targetId,
+              notesMarkdownInput,
+              notesTagsInput,
+              notesPreview,
+              notesStatus,
+              notesPageList,
+              notesAllList,
+              notesLayout,
+              notesBackBtn,
+              notesSheetTitle,
+            });
+          }
         } catch {
           refreshNotes({ notesPageList, notesAllList }).catch(() => {});
         }
       }
+    });
+
+    window.addEventListener('deepl:openNoteFromLibrary', (event) => {
+      const noteId = String(event?.detail?.noteId || '').trim();
+      if (!noteId) return;
+
+      pendingExternalOpenNoteId = noteId;
+      openNoteById({
+        noteId,
+        notesMarkdownInput,
+        notesTagsInput,
+        notesPreview,
+        notesStatus,
+        notesPageList,
+        notesAllList,
+        notesLayout,
+        notesBackBtn,
+        notesSheetTitle,
+      }).then((opened) => {
+        if (opened) {
+          pendingExternalOpenNoteId = null;
+        }
+      }).catch(() => {});
     });
 
     (async () => {
