@@ -1,6 +1,6 @@
-# DeepL Translate — Chrome Extension
+# Web Library Assistant — Chrome Extension
 
-A seamless Chrome sidebar translation extension powered by the DeepL API. Select text on any webpage and get instant translation in the side panel.
+A library-first Chrome side panel extension for collecting website knowledge with translation, notes, markers, and AI chat.
 
 ![Main View](docs/screenshot_main.png)
 
@@ -31,7 +31,7 @@ Sign up for a free account at [deepl.com/pro](https://www.deepl.com/pro#develope
 1. Open Chrome and go to `chrome://extensions`
 2. Enable **Developer mode** (top right toggle)
 3. Click **"Load unpacked"**
-4. Select this folder (`chrome-translate-extension`)
+4. Select this folder (`deepl-translate-extension`)
 
 ### 3. Configure API Key
 
@@ -59,7 +59,7 @@ Sign up for a free account at [deepl.com/pro](https://www.deepl.com/pro#develope
 ## File Structure
 
 ```text
-chrome-translate-extension/
+deepl-translate-extension/
 ├── manifest.json      # Manifest V3 configuration
 ├── core/
 │   └── background.js  # Service Worker — API calls & message routing

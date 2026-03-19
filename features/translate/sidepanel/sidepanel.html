@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeepL Translate</title>
+  <title>Web Library Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -11,35 +11,9 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-  <!-- Header -->
-  <header class="header">
-    <div class="header-left">
-      <div class="logo">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
-        </svg>
-      </div>
-      <h1 class="title">DeepL Translate</h1>
-    </div>
-    <button id="settingsBtn" class="icon-btn" title="Settings">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-      </svg>
-    </button>
-  </header>
-
-  <div class="mode-switch" role="tablist" aria-label="Workspace mode">
-    <button id="modeTranslateBtn" class="mode-btn active" role="tab" aria-selected="true">Translate</button>
-    <button id="modeAiBtn" class="mode-btn" role="tab" aria-selected="false">Ask AI</button>
-    <button id="modeNotesBtn" class="mode-btn" role="tab" aria-selected="false">Notes</button>
-    <button id="modeMarkersBtn" class="mode-btn" role="tab" aria-selected="false">Markers</button>
-    <button id="modeLibraryBtn" class="mode-btn" role="tab" aria-selected="false">Library</button>
-  </div>
-
-  <div id="translateWorkspace">
+  <div class="app-shell">
+    <div class="workspace-area">
+      <div id="translateWorkspace">
 
   <!-- Language Selector -->
   <div class="lang-bar">
@@ -88,7 +62,7 @@
         <option value="KO">한국어</option>
       </select>
     </div>
-  </div>
+      </div>
 
   <!-- Source Text -->
   <div class="card source-card">
@@ -157,7 +131,7 @@
 
   </div>
 
-  <div id="aiWorkspace" class="hidden">
+      <div id="aiWorkspace" class="hidden">
     <div class="ai-toolbar">
       <button id="aiHistoryBtn" class="toolbar-btn" type="button">履歴</button>
       <button id="aiNewChatBtn" class="toolbar-btn toolbar-btn-primary" type="button">新しいチャット</button>
@@ -185,9 +159,9 @@
         </button>
       </div>
     </div>
-  </div>
+      </div>
 
-  <div id="notesWorkspace" class="hidden">
+      <div id="notesWorkspace" class="hidden">
     <div id="notesLayout" class="notes-layout">
       <aside class="notes-sidebar">
         <button id="notesNewBtn" class="notes-new-btn notes-new-btn-top" type="button">+ 新規作成</button>
@@ -233,9 +207,9 @@
         <div id="notesStatus" class="notes-status"></div>
       </section>
     </div>
-  </div>
+      </div>
 
-  <div id="markersWorkspace" class="hidden">
+      <div id="markersWorkspace" class="hidden">
     <div class="markers-layout">
       <div class="markers-toolbar">
         <button id="markersRefreshBtn" class="toolbar-btn" type="button">再読み込み</button>
@@ -248,9 +222,9 @@
 
       <div id="markersStatus" class="notes-status"></div>
     </div>
-  </div>
+      </div>
 
-  <div id="libraryWorkspace" class="hidden">
+      <div id="libraryWorkspace" class="hidden">
     <div class="library-layout">
       <div class="library-toolbar">
         <button id="libraryCreateFolderBtn" class="library-create-folder-btn" type="button" title="フォルダを新規作成" aria-label="フォルダを新規作成">＋</button>
@@ -265,6 +239,83 @@
         </div>
       </div>
     </div>
+      </div>
+    </div>
+
+    <aside id="actionRail" class="action-rail" role="toolbar" aria-label="Workspace actions">
+      <button
+        id="settingsBtn"
+        class="icon-btn mode-btn rail-btn"
+        type="button"
+        data-action-id="settings"
+        draggable="true"
+        title="設定"
+        aria-label="設定"
+      >
+        ⚙️
+      </button>
+
+      <button
+        id="modeTranslateBtn"
+        class="mode-btn rail-btn active"
+        type="button"
+        data-action-id="translate"
+        draggable="true"
+        title="Translate"
+        aria-label="Translate"
+        aria-selected="true"
+      >
+        🌐
+      </button>
+      <button
+        id="modeAiBtn"
+        class="mode-btn rail-btn"
+        type="button"
+        data-action-id="ai"
+        draggable="true"
+        title="Ask AI"
+        aria-label="Ask AI"
+        aria-selected="false"
+      >
+        🤖
+      </button>
+      <button
+        id="modeNotesBtn"
+        class="mode-btn rail-btn"
+        type="button"
+        data-action-id="notes"
+        draggable="true"
+        title="Notes"
+        aria-label="Notes"
+        aria-selected="false"
+      >
+        📝
+      </button>
+      <button
+        id="modeMarkersBtn"
+        class="mode-btn rail-btn"
+        type="button"
+        data-action-id="markers"
+        draggable="true"
+        title="Markers"
+        aria-label="Markers"
+        aria-selected="false"
+      >
+        🖍️
+      </button>
+      <button
+        id="modeLibraryBtn"
+        class="mode-btn rail-btn"
+        type="button"
+        data-action-id="library"
+        draggable="true"
+        title="Library"
+        aria-label="Library"
+        aria-selected="false"
+      >
+        📚
+      </button>
+    </aside>
   </div>
 
   <!-- Settings Modal -->

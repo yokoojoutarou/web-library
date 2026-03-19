@@ -1,5 +1,5 @@
 /* ==============================
-   DeepL Translate — Side Panel Styles
+  Web Library Assistant — Side Panel Styles
    Dark theme with cyan/teal accents
    ============================== */
 
@@ -47,7 +47,8 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
-  overflow-x: hidden;
+  height: 100vh;
+  overflow: hidden;
   font-size: 13px;
   line-height: 1.5;
 }
@@ -67,48 +68,39 @@ body {
   background: var(--text-muted);
 }
 
-/* ===== HEADER ===== */
-.header {
+/* ===== APP LAYOUT ===== */
+.app-shell {
   display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-area {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.action-rail {
+  width: 58px;
+  flex: 0 0 58px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  padding: 10px 8px;
+  border-left: 1px solid var(--border);
   background: var(--bg-secondary);
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent-glow-strong), transparent);
-  color: var(--accent);
-}
-
-.title {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  color: var(--text-primary);
+  overflow-y: auto;
 }
 
 /* ===== MODE SWITCH ===== */
 .mode-switch {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
 }
 
 .mode-btn {
@@ -129,28 +121,66 @@ body {
   background: var(--accent-glow);
 }
 
+.rail-btn {
+  width: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+  user-select: none;
+}
+
+.rail-btn[draggable="true"] {
+  cursor: grab;
+}
+
+.rail-btn[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.rail-btn.rail-dragging {
+  opacity: 0.45;
+}
+
+.rail-btn.rail-drop-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
 #aiWorkspace {
-  height: calc(100vh - 105px);
+  height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 #notesWorkspace {
-  height: calc(100vh - 105px);
+  height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 #markersWorkspace {
-  height: calc(100vh - 105px);
+  height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 #libraryWorkspace {
-  height: calc(100vh - 105px);
+  height: 100%;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+
+#translateWorkspace {
+  min-height: 100%;
 }
 
 .library-layout {

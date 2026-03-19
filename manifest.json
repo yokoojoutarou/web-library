@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "DeepL Translate",
+  "name": "Web Library Assistant",
   "version": "1.0.0",
-  "description": "Seamless translation powered by DeepL API — select text and translate instantly.",
+  "description": "A library-first web knowledge assistant with translation, notes, markers, and AI workflows.",
   "permissions": [
     "sidePanel",
     "activeTab",
@@ -29,7 +29,7 @@
     }
   ],
   "action": {
-    "default_title": "DeepL Translate",
+    "default_title": "Web Library Assistant",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
