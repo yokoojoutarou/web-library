@@ -1,5 +1,5 @@
 // ==============================
-// DeepL Translate — Content Script
+// Web Library Assistant — Content Script
 // ==============================
 
 (() => {
@@ -34,7 +34,7 @@
         const message = error?.message || String(error);
         if (message.includes('Extension context invalidated')) {
             isContextAlive = false;
-            console.warn('[DeepL Translate][content] extension_context_invalidated', {
+            console.warn('[Web Library Assistant][content] extension_context_invalidated', {
                 trigger,
                 error: message
             });
@@ -56,7 +56,7 @@
                 })
             ).catch((error) => {
                 if (!markContextInvalidated(error, trigger)) {
-                    console.warn('[DeepL Translate][content] text_selected_send_failed', {
+                    console.warn('[Web Library Assistant][content] text_selected_send_failed', {
                         trigger,
                         error: error?.message || String(error)
                     });
@@ -64,7 +64,7 @@
             });
         } catch (error) {
             if (!markContextInvalidated(error, trigger)) {
-                console.warn('[DeepL Translate][content] text_selected_send_failed_sync', {
+                console.warn('[Web Library Assistant][content] text_selected_send_failed_sync', {
                     trigger,
                     error: error?.message || String(error)
                 });

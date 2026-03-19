@@ -1,5 +1,5 @@
 // ==============================
-// DeepL Translate — Background Service Worker
+// Web Library Assistant — Background Service Worker
 // ==============================
 
 importScripts('../vendor/dexie.min.js', './db/repository.js');
