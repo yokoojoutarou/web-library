@@ -12,10 +12,10 @@
 
   const markdownRenderer = typeof window.markdownit === 'function'
     ? window.markdownit({
-        html: false,
-        linkify: true,
-        breaks: true,
-      })
+      html: false,
+      linkify: true,
+      breaks: true,
+    })
     : null;
 
   if (markdownRenderer && typeof window.markdownitMultimdTable === 'function') {
@@ -70,10 +70,10 @@
     previewElement.innerHTML = markdownRenderer
       ? markdownRenderer.render(text)
       : text
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/\n/g, '<br>');
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
   }
 
   function setSingleSheetMode({ notesSheetTitle, notesMarkdownInput, notesPreview, isEditing }) {
@@ -312,7 +312,7 @@
         notesPageList,
         notesAllList,
         silent: true,
-      }).catch(() => {});
+      }).catch(() => { });
     }, 700);
   }
 
@@ -602,7 +602,7 @@
         notesPageList,
         notesAllList,
         reloadNotesOnUrlChange: true,
-      }).catch(() => {});
+      }).catch(() => { });
     });
 
     window.addEventListener('deepl:workspaceModeChanged', async (event) => {
@@ -644,7 +644,7 @@
             });
           }
         } catch {
-          refreshNotes({ notesPageList, notesAllList }).catch(() => {});
+          refreshNotes({ notesPageList, notesAllList }).catch(() => { });
         }
       }
     });
@@ -669,7 +669,13 @@
         if (opened) {
           pendingExternalOpenNoteId = null;
         }
-      }).catch(() => {});
+      }).catch(() => { });
+    });
+
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type !== 'NOTE_UPDATED') return;
+      if (isSaving) return;
+      refreshNotes({ notesPageList, notesAllList }).catch(() => { });
     });
 
     (async () => {

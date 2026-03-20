@@ -106,6 +106,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             type: 'MARKER_UPDATED',
           }).catch(() => { });
         }
+
+        const libraryOps = [
+          'marker.upsert', 'marker.delete',
+          'note.upsert', 'note.delete',
+          'site.ensure', 'site.delete', 'site.setTags',
+          'folder.create', 'folder.rename', 'folder.move', 'folder.delete',
+          'library.createSiteFolder', 'library.moveSite',
+        ];
+        if (libraryOps.includes(operation)) {
+          chrome.runtime.sendMessage({
+            type: 'LIBRARY_UPDATED',
+          }).catch(() => { });
+        }
+
+        if (operation === 'note.upsert' || operation === 'note.delete') {
+          chrome.runtime.sendMessage({
+            type: 'NOTE_UPDATED',
+          }).catch(() => { });
+        }
+
         sendResponse({ success: true, data: result });
       })
       .catch(error => sendResponse({ success: false, error: error.message }));
