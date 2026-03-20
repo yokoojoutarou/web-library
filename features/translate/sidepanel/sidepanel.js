@@ -46,6 +46,7 @@
     let aiFetchRequestId = 0;
     let draggingActionId = null;
     let currentWorkspaceMode = 'translate';
+    let isInitializing = true;
 
     const ACTION_ORDER_KEY = 'workspaceActionOrder';
     const DEFAULT_ACTION_ORDER = ['settings', 'translate', 'ai', 'notes', 'markers', 'library'];
@@ -117,6 +118,8 @@
         if (!settings.apiKey) {
             settingsModal.classList.remove('hidden');
         }
+
+        isInitializing = false;
     }
 
     // --- Message Listener (from background) ---
@@ -129,7 +132,7 @@
                 detail: { text: message.text || '' }
             }));
 
-            if (autoTranslate.checked && message.text.trim() && currentWorkspaceMode === 'translate') {
+            if (!isInitializing && autoTranslate.checked && message.text.trim() && currentWorkspaceMode === 'translate') {
                 debouncedTranslate();
             }
         }
@@ -138,7 +141,7 @@
             applyWorkspaceMode('translate');
             sourceText.value = message.text || '';
             updateCharCount();
-            debouncedTranslate();
+            translate();
         }
 
         if (message.type === 'ACTIVATE_AI_WITH_CONTEXT') {

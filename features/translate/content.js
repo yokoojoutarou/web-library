@@ -5,7 +5,6 @@
 (() => {
     let debounceTimer = null;
     let isContextAlive = true;
-    let selectionPaletteTimer = null;
     let activeMarkerId = null;
     const MAX_PAGE_CONTEXT_CHARS = 22000;
     const MAX_SELECTION_CHARS = 4000;
@@ -767,25 +766,6 @@
         return range;
     }
 
-    function scheduleSelectionPalette() {
-        clearTimeout(selectionPaletteTimer);
-        selectionPaletteTimer = setTimeout(() => {
-            const range = getValidSelectionRange();
-            if (!range) {
-                hideSelectionPalette();
-                return;
-            }
-
-            ensureSelectionPalette();
-            const rect = range.getBoundingClientRect();
-            if (!rect || (rect.width === 0 && rect.height === 0)) {
-                hideSelectionPalette();
-                return;
-            }
-
-            showUiAt(selectionPaletteElement, rect);
-        }, 140);
-    }
 
     async function sendDbOp(operation, payload = {}) {
         return chrome.runtime.sendMessage({
@@ -1042,6 +1022,9 @@
     document.addEventListener('contextmenu', (event) => {
         const range = getValidSelectionRange();
         if (!range) return;
+
+        // Prevent default context menu from obscuring our UI
+        event.preventDefault();
 
         ensureSelectionPalette();
         const rect = range.getBoundingClientRect();

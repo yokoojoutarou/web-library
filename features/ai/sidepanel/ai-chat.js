@@ -346,6 +346,8 @@
       currentThreadMessages = normalizePersistedMessages(thread.messages);
       await setActiveThreadId(thread.threadId);
       renderConversation(aiMessages, currentThreadMessages);
+      clearConfirmedContexts();
+      updatePreviewChip('');
       await refreshThreads();
     };
 

@@ -65,6 +65,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       type: 'ACTIVATE_TRANSLATE',
       text: message.text
     }).catch(() => { });
+    sendResponse({ success: true });
   }
 
   if (message.type === 'QUICK_AI_ASK') {
@@ -72,6 +73,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       type: 'ACTIVATE_AI_WITH_CONTEXT',
       text: message.text
     }).catch(() => { });
+    sendResponse({ success: true });
   }
 
   if (message.type === 'TRANSLATE') {
