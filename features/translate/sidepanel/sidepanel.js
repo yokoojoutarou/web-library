@@ -61,11 +61,24 @@
     init();
 
     async function init() {
-        // Load saved settings
-        const settings = await chrome.storage.local.get([
-            'apiKey', 'apiType', 'targetLang', 'sourceLang', 'autoTranslate', 'workspaceMode',
-            'aiProvider', 'aiApiKeys', 'aiModels', ACTION_ORDER_KEY
+        // Load saved settings and any pending sidebar action from context menu
+        const [settings, sessionParams] = await Promise.all([
+            chrome.storage.local.get([
+                'apiKey', 'apiType', 'targetLang', 'sourceLang', 'autoTranslate', 'workspaceMode',
+                'aiProvider', 'aiApiKeys', 'aiModels', ACTION_ORDER_KEY
+            ]),
+            chrome.storage.session.get(['pendingSidebarAction'])
         ]);
+
+        let workspaceMode = settings.workspaceMode;
+
+        const pendingAction = sessionParams.pendingSidebarAction;
+        let actionToExecute = null;
+        if (pendingAction && (Date.now() - pendingAction.timestamp < 3000)) {
+            workspaceMode = pendingAction.action;
+            actionToExecute = pendingAction;
+            await chrome.storage.session.remove('pendingSidebarAction');
+        }
 
         if (settings.apiKey) apiKeyInput.value = settings.apiKey;
         if (settings.apiType) apiTypeSelect.value = settings.apiType;
@@ -88,7 +101,6 @@
             selectedModel: aiModels[aiProvider],
         });
 
-        const workspaceMode = settings.workspaceMode;
         if (workspaceMode === 'ai' || workspaceMode === 'notes' || workspaceMode === 'markers' || workspaceMode === 'library') {
             applyWorkspaceMode(workspaceMode);
         } else {
@@ -120,6 +132,20 @@
         }
 
         isInitializing = false;
+
+        if (actionToExecute) {
+            if (actionToExecute.action === 'translate') {
+                sourceText.value = actionToExecute.text || '';
+                updateCharCount();
+                translate();
+            } else if (actionToExecute.action === 'ai') {
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('deepl:addAiContext', {
+                        detail: { text: actionToExecute.text || '' }
+                    }));
+                }, 100);
+            }
+        }
     }
 
     // --- Message Listener (from background) ---
@@ -138,6 +164,7 @@
         }
 
         if (message.type === 'ACTIVATE_TRANSLATE') {
+            chrome.storage.session.remove('pendingSidebarAction').catch(() => { });
             applyWorkspaceMode('translate');
             sourceText.value = message.text || '';
             updateCharCount();
@@ -145,6 +172,7 @@
         }
 
         if (message.type === 'ACTIVATE_AI_WITH_CONTEXT') {
+            chrome.storage.session.remove('pendingSidebarAction').catch(() => { });
             applyWorkspaceMode('ai');
             window.dispatchEvent(new CustomEvent('deepl:addAiContext', {
                 detail: { text: message.text || '' }
