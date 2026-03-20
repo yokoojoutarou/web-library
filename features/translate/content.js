@@ -1023,9 +1023,6 @@
         const range = getValidSelectionRange();
         if (!range) return;
 
-        // Prevent default context menu from obscuring our UI
-        event.preventDefault();
-
         ensureSelectionPalette();
         const rect = range.getBoundingClientRect();
         if (!rect || (rect.width === 0 && rect.height === 0)) {
