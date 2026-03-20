@@ -1232,6 +1232,103 @@ body {
   padding-bottom: 2px;
 }
 
+/* ===== AI CONTEXT CHIPS ===== */
+.ai-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-context-list:not(:empty) {
+  margin-bottom: 8px;
+}
+
+.ai-context-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  min-width: 0;
+  animation: chipSlideIn 0.2s ease;
+}
+
+@keyframes chipSlideIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ai-context-chip--preview {
+  border: 1px dashed var(--text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 8px;
+}
+
+.ai-context-chip--confirmed {
+  border: 1px solid var(--accent-dim);
+  background: var(--accent-glow);
+}
+
+.ai-context-chip-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.ai-context-chip-action--add {
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+}
+
+.ai-context-chip-action--add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.ai-context-chip-action--remove {
+  border-color: transparent;
+  color: var(--text-muted);
+}
+
+.ai-context-chip-action--remove:hover {
+  color: var(--error);
+  background: var(--error-bg);
+}
+
+.ai-context-chip-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.ai-context-chip--confirmed .ai-context-chip-icon {
+  color: var(--accent);
+}
+
+.ai-context-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-context-chip--confirmed .ai-context-chip-text {
+  color: var(--text-primary);
+}
+
 .ai-input-dock {
   position: sticky;
   bottom: 0;

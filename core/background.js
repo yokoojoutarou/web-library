@@ -60,6 +60,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
 
+  if (message.type === 'QUICK_TRANSLATE') {
+    chrome.runtime.sendMessage({
+      type: 'ACTIVATE_TRANSLATE',
+      text: message.text
+    }).catch(() => { });
+    sendResponse({ success: true });
+  }
+
+  if (message.type === 'QUICK_AI_ASK') {
+    chrome.runtime.sendMessage({
+      type: 'ACTIVATE_AI_WITH_CONTEXT',
+      text: message.text
+    }).catch(() => { });
+    sendResponse({ success: true });
+  }
+
   if (message.type === 'TRANSLATE') {
     handleTranslation(message.text, message.targetLang, message.sourceLang)
       .then(result => sendResponse({ success: true, data: result }))
@@ -88,7 +104,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (operation === 'marker.upsert' || operation === 'marker.delete') {
           chrome.runtime.sendMessage({
             type: 'MARKER_UPDATED',
-          }).catch(() => {});
+          }).catch(() => { });
         }
         sendResponse({ success: true, data: result });
       })
@@ -297,9 +313,9 @@ function buildAiPromptWithContext({ question, selectedText, pageContext, threadM
 
   const trimmedThread = Array.isArray(threadMessages)
     ? threadMessages.slice(-20).map((item) => ({
-        role: item?.role === 'assistant' ? 'assistant' : 'user',
-        content: String(item?.content || '').trim(),
-      })).filter((item) => item.content)
+      role: item?.role === 'assistant' ? 'assistant' : 'user',
+      content: String(item?.content || '').trim(),
+    })).filter((item) => item.content)
     : [];
 
   if (trimmedThread.length > 0) {

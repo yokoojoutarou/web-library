@@ -5,7 +5,6 @@
 (() => {
     let debounceTimer = null;
     let isContextAlive = true;
-    let selectionPaletteTimer = null;
     let activeMarkerId = null;
     const MAX_PAGE_CONTEXT_CHARS = 22000;
     const MAX_SELECTION_CHARS = 4000;
@@ -259,6 +258,30 @@
                 background: rgba(255, 255, 255, 0.08);
                 color: #ffffff;
             }
+            .deepl-marker-ui-divider {
+                width: 1px;
+                height: 18px;
+                background: rgba(255, 255, 255, 0.18);
+                margin: 0 2px;
+                flex-shrink: 0;
+            }
+            .deepl-selection-action {
+                background: rgba(255, 255, 255, 0.08) !important;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background 0.15s;
+            }
+            .deepl-selection-action:hover {
+                background: rgba(255, 255, 255, 0.18) !important;
+            }
+            .deepl-selection-action svg {
+                width: 15px;
+                height: 15px;
+                stroke: #ffffff;
+                fill: none;
+                stroke-width: 1.8;
+            }
         `;
 
         document.documentElement.appendChild(style);
@@ -274,6 +297,13 @@
             <button type="button" class="deepl-marker-color-yellow" data-color="yellow" title="Yellow" aria-label="Yellow marker"></button>
             <button type="button" class="deepl-marker-color-green" data-color="green" title="Green" aria-label="Green marker"></button>
             <button type="button" class="deepl-marker-color-pink" data-color="pink" title="Pink" aria-label="Pink marker"></button>
+            <span class="deepl-marker-ui-divider"></span>
+            <button type="button" class="deepl-selection-action" data-action="translate" title="翻訳" aria-label="翻訳">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16"></path><path d="M12 4a12 12 0 0 1 0 16"></path><path d="M12 4a12 12 0 0 0 0 16"></path></svg>
+            </button>
+            <button type="button" class="deepl-selection-action" data-action="ai" title="AIに質問" aria-label="AIに質問">
+                <svg viewBox="0 0 24 24"><rect x="6" y="8" width="12" height="10" rx="3"></rect><path d="M9 8V6a3 3 0 0 1 6 0v2"></path><circle cx="10" cy="13" r="1"></circle><circle cx="14" cy="13" r="1"></circle><path d="M10 16h4"></path></svg>
+            </button>
         `;
 
         selectionPaletteElement.addEventListener('mousedown', (event) => {
@@ -281,11 +311,27 @@
         });
 
         selectionPaletteElement.addEventListener('click', (event) => {
-            const button = event.target.closest('button[data-color]');
-            if (!button) return;
-            const color = button.dataset.color;
-            if (!MARKER_COLORS.includes(color)) return;
-            createMarkerFromSelection(color).catch(() => {});
+            const colorBtn = event.target.closest('button[data-color]');
+            if (colorBtn) {
+                const color = colorBtn.dataset.color;
+                if (!MARKER_COLORS.includes(color)) return;
+                createMarkerFromSelection(color).catch(() => { });
+                return;
+            }
+
+            const actionBtn = event.target.closest('button[data-action]');
+            if (!actionBtn) return;
+            const action = actionBtn.dataset.action;
+            const text = getCurrentSelectionText();
+            if (!text) return;
+
+            if (action === 'translate') {
+                chrome.runtime.sendMessage({ type: 'QUICK_TRANSLATE', text }).catch(() => { });
+                hideSelectionPalette();
+            } else if (action === 'ai') {
+                chrome.runtime.sendMessage({ type: 'QUICK_AI_ASK', text }).catch(() => { });
+                hideSelectionPalette();
+            }
         });
 
         document.body.appendChild(selectionPaletteElement);
@@ -314,14 +360,14 @@
 
             const action = button.dataset.action;
             if (action === 'delete') {
-                deleteMarker(activeMarkerId).catch(() => {});
+                deleteMarker(activeMarkerId).catch(() => { });
                 return;
             }
 
             if (action === 'color') {
                 const color = button.dataset.color;
                 if (!MARKER_COLORS.includes(color)) return;
-                recolorMarker(activeMarkerId, color).catch(() => {});
+                recolorMarker(activeMarkerId, color).catch(() => { });
             }
         });
 
@@ -720,25 +766,6 @@
         return range;
     }
 
-    function scheduleSelectionPalette() {
-        clearTimeout(selectionPaletteTimer);
-        selectionPaletteTimer = setTimeout(() => {
-            const range = getValidSelectionRange();
-            if (!range) {
-                hideSelectionPalette();
-                return;
-            }
-
-            ensureSelectionPalette();
-            const rect = range.getBoundingClientRect();
-            if (!rect || (rect.width === 0 && rect.height === 0)) {
-                hideSelectionPalette();
-                return;
-            }
-
-            showUiAt(selectionPaletteElement, rect);
-        }, 140);
-    }
 
     async function sendDbOp(operation, payload = {}) {
         return chrome.runtime.sendMessage({
@@ -974,8 +1001,6 @@
                 sendSelectedText(text, 'mouseup');
             }
         }, 250);
-
-        scheduleSelectionPalette();
     });
 
     // Also handle keyboard-based selection (Shift+Arrow keys)
@@ -991,12 +1016,24 @@
                 }
             }, 400);
         }
-
-        scheduleSelectionPalette();
     });
 
-    document.addEventListener('selectionchange', () => {
-        scheduleSelectionPalette();
+    // Show selection palette on right-click when text is selected
+    document.addEventListener('contextmenu', (event) => {
+        const range = getValidSelectionRange();
+        if (!range) return;
+
+        // Prevent default context menu from obscuring our UI
+        event.preventDefault();
+
+        ensureSelectionPalette();
+        const rect = range.getBoundingClientRect();
+        if (!rect || (rect.width === 0 && rect.height === 0)) {
+            hideSelectionPalette();
+            return;
+        }
+
+        showUiAt(selectionPaletteElement, rect);
     });
 
     document.addEventListener('click', handleDocumentClick, true);
@@ -1011,7 +1048,6 @@
     });
 
     ensureMarkerStyles();
-    ensureSelectionPalette();
     ensureMarkerActionMenu();
-    restoreMarkersWithRetry().catch(() => {});
+    restoreMarkersWithRetry().catch(() => { });
 })();

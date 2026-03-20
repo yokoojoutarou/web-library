@@ -5,16 +5,17 @@
   let latestSelectedText = '';
   let activeThreadId = null;
   let currentThreadMessages = [];
+  let confirmedContexts = [];
 
   const hasMarkdownIt = typeof window.markdownit === 'function';
   const hasKatex = typeof window.katex?.renderToString === 'function';
 
   const markdownRenderer = hasMarkdownIt
     ? window.markdownit({
-        html: false,
-        linkify: true,
-        breaks: true,
-      })
+      html: false,
+      linkify: true,
+      breaks: true,
+    })
     : null;
 
   if (markdownRenderer && typeof window.markdownitMultimdTable === 'function') {
@@ -135,10 +136,10 @@
       body.innerHTML = markdownRenderer
         ? markdownRenderer.render(text || '')
         : (text || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/\n/g, '<br>');
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\n/g, '<br>');
     } else {
       body.textContent = text;
     }
@@ -253,12 +254,78 @@
     const aiNewChatBtn = document.getElementById('aiNewChatBtn');
     const aiThreadPanel = document.getElementById('aiThreadPanel');
     const aiThreadList = document.getElementById('aiThreadList');
+    const aiContextPreview = document.getElementById('aiContextPreview');
+    const aiContextPreviewText = document.getElementById('aiContextPreviewText');
+    const aiContextAddBtn = document.getElementById('aiContextAddBtn');
+    const aiContextList = document.getElementById('aiContextList');
 
     if (!aiMessages || !aiPromptInput || !aiSendBtn || !aiHistoryBtn || !aiNewChatBtn || !aiThreadPanel || !aiThreadList) {
       return;
     }
 
     let isAsking = false;
+
+    // --- Context chip helpers ---
+    const DOCUMENT_ICON_SVG = '<svg class="ai-context-chip-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+
+    function createConfirmedChip(text) {
+      const chip = document.createElement('div');
+      chip.className = 'ai-context-chip ai-context-chip--confirmed';
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'ai-context-chip-action ai-context-chip-action--remove';
+      removeBtn.type = 'button';
+      removeBtn.title = 'コンテキストを削除';
+      removeBtn.setAttribute('aria-label', 'コンテキストを削除');
+      removeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+      const iconSpan = document.createElement('span');
+      iconSpan.innerHTML = DOCUMENT_ICON_SVG;
+
+      const textSpan = document.createElement('span');
+      textSpan.className = 'ai-context-chip-text';
+      textSpan.textContent = text;
+
+      chip.appendChild(removeBtn);
+      chip.appendChild(iconSpan);
+      chip.appendChild(textSpan);
+
+      removeBtn.addEventListener('click', () => {
+        const idx = confirmedContexts.indexOf(text);
+        if (idx !== -1) confirmedContexts.splice(idx, 1);
+        chip.remove();
+      });
+
+      return chip;
+    }
+
+    function updatePreviewChip(text) {
+      if (!aiContextPreview || !aiContextPreviewText) return;
+      if (text) {
+        aiContextPreviewText.textContent = text;
+        aiContextPreview.classList.remove('hidden');
+      } else {
+        aiContextPreview.classList.add('hidden');
+        aiContextPreviewText.textContent = '';
+      }
+    }
+
+    function clearConfirmedContexts() {
+      confirmedContexts = [];
+      if (aiContextList) aiContextList.innerHTML = '';
+    }
+
+    if (aiContextAddBtn) {
+      aiContextAddBtn.addEventListener('click', () => {
+        const text = latestSelectedText.trim();
+        if (!text) return;
+        confirmedContexts.push(text);
+        if (aiContextList) {
+          aiContextList.appendChild(createConfirmedChip(text));
+        }
+        updatePreviewChip('');
+      });
+    }
 
     const refreshThreads = async () => {
       try {
@@ -279,6 +346,8 @@
       currentThreadMessages = normalizePersistedMessages(thread.messages);
       await setActiveThreadId(thread.threadId);
       renderConversation(aiMessages, currentThreadMessages);
+      clearConfirmedContexts();
+      updatePreviewChip('');
       await refreshThreads();
     };
 
@@ -287,6 +356,8 @@
       await setActiveThreadId(null);
       renderConversation(aiMessages, currentThreadMessages);
       aiPromptInput.value = '';
+      clearConfirmedContexts();
+      updatePreviewChip('');
       await refreshThreads();
     };
 
@@ -294,7 +365,9 @@
       const prompt = aiPromptInput.value.trim();
       if (!prompt || isAsking) return;
 
-      const contextText = latestSelectedText;
+      const contextText = confirmedContexts.length > 0
+        ? confirmedContexts.join('\n\n---\n\n')
+        : '';
       const userMessage = { role: 'user', content: prompt, timestamp: new Date().toISOString() };
       currentThreadMessages.push(userMessage);
       aiMessages.appendChild(createMessage('user', prompt));
@@ -355,14 +428,14 @@
     });
 
     aiNewChatBtn.addEventListener('click', () => {
-      startNewChat().catch(() => {});
+      startNewChat().catch(() => { });
     });
 
     aiThreadList.addEventListener('click', (event) => {
       const target = event.target.closest('.thread-item');
       if (!target) return;
       const threadId = target.dataset.threadId;
-      openThread(threadId).catch(() => {});
+      openThread(threadId).catch(() => { });
     });
 
     aiPromptInput.addEventListener('keydown', (event) => {
@@ -374,6 +447,20 @@
 
     window.addEventListener('deepl:selectedTextUpdated', (event) => {
       latestSelectedText = event.detail?.text || '';
+      updatePreviewChip(latestSelectedText);
+    });
+
+    window.addEventListener('deepl:addAiContext', (event) => {
+      const text = (event.detail?.text || '').trim();
+      if (!text) return;
+      confirmedContexts.push(text);
+      if (aiContextList) {
+        aiContextList.appendChild(createConfirmedChip(text));
+      }
+      updatePreviewChip('');
+      if (aiPromptInput) {
+        aiPromptInput.focus();
+      }
     });
 
     (async () => {
