@@ -672,10 +672,15 @@
       }).catch(() => { });
     });
 
+    let noteRefreshTimer = null;
+
     chrome.runtime.onMessage.addListener((message) => {
       if (message?.type !== 'NOTE_UPDATED') return;
       if (isSaving) return;
-      refreshNotes({ notesPageList, notesAllList }).catch(() => { });
+      clearTimeout(noteRefreshTimer);
+      noteRefreshTimer = setTimeout(() => {
+        refreshNotes({ notesPageList, notesAllList }).catch(() => { });
+      }, 300);
     });
 
     (async () => {

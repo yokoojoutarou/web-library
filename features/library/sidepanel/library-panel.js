@@ -687,11 +687,16 @@
             return;
           }
 
-          await sendDbOp('library.createSiteFolder', {
+          const siteFolderResponse = await sendDbOp('library.createSiteFolder', {
             url: siteUrl,
             title: siteTitle,
             parentFolderId: button.dataset.parentFolderId || null,
           });
+
+          if (!siteFolderResponse?.success) {
+            setStatus(libraryStatus, siteFolderResponse?.error || 'サイトフォルダの登録に失敗しました。', true);
+            return;
+          }
 
           const noteResponse = await sendDbOp('note.upsert', {
             url: siteUrl,
@@ -851,8 +856,13 @@
       setStatus(libraryStatus, 'フォルダを作成しました。');
     });
 
+    let libraryDirty = false;
+
     window.addEventListener('deepl:workspaceModeChanged', (event) => {
       if (event?.detail?.mode !== 'library') return;
+      if (libraryDirty) {
+        libraryDirty = false;
+      }
       refreshLibraryData(elements).catch((error) => {
         setStatus(libraryStatus, error.message || 'ライブラリーの更新に失敗しました。', true);
       });
@@ -860,6 +870,10 @@
 
     chrome.runtime.onMessage.addListener((message) => {
       if (message?.type !== 'LIBRARY_UPDATED') return;
+      if (libraryWorkspace.classList.contains('hidden')) {
+        libraryDirty = true;
+        return;
+      }
       scheduleRefresh(elements);
     });
 

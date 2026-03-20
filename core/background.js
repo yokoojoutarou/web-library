@@ -45,6 +45,18 @@ const DB_OPERATION_HANDLERS = Object.freeze({
   'tag.search': (repo, payload) => repo.findByTag(payload),
 });
 
+const LIBRARY_NOTIFY_OPS = Object.freeze(new Set([
+  'marker.upsert', 'marker.delete',
+  'note.upsert', 'note.delete',
+  'site.ensure', 'site.delete', 'site.setTags',
+  'folder.create', 'folder.rename', 'folder.move', 'folder.delete',
+  'library.createSiteFolder', 'library.moveSite',
+]));
+
+const NOTE_NOTIFY_OPS = Object.freeze(new Set([
+  'note.upsert', 'note.delete',
+]));
+
 // Open side panel when extension icon is clicked
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
@@ -107,20 +119,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }).catch(() => { });
         }
 
-        const libraryOps = [
-          'marker.upsert', 'marker.delete',
-          'note.upsert', 'note.delete',
-          'site.ensure', 'site.delete', 'site.setTags',
-          'folder.create', 'folder.rename', 'folder.move', 'folder.delete',
-          'library.createSiteFolder', 'library.moveSite',
-        ];
-        if (libraryOps.includes(operation)) {
+        if (LIBRARY_NOTIFY_OPS.has(operation)) {
           chrome.runtime.sendMessage({
             type: 'LIBRARY_UPDATED',
           }).catch(() => { });
         }
 
-        if (operation === 'note.upsert' || operation === 'note.delete') {
+        if (NOTE_NOTIFY_OPS.has(operation)) {
           chrome.runtime.sendMessage({
             type: 'NOTE_UPDATED',
           }).catch(() => { });
