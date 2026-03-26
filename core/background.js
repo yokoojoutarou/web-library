@@ -45,6 +45,18 @@ const DB_OPERATION_HANDLERS = Object.freeze({
   'tag.search': (repo, payload) => repo.findByTag(payload),
 });
 
+const LIBRARY_NOTIFY_OPS = Object.freeze(new Set([
+  'marker.upsert', 'marker.delete',
+  'note.upsert', 'note.delete',
+  'site.ensure', 'site.delete', 'site.setTags',
+  'folder.create', 'folder.rename', 'folder.move', 'folder.delete',
+  'library.createSiteFolder', 'library.moveSite',
+]));
+
+const NOTE_NOTIFY_OPS = Object.freeze(new Set([
+  'note.upsert', 'note.delete',
+]));
+
 // Open side panel when extension icon is clicked
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
@@ -60,20 +72,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
 
-  if (message.type === 'QUICK_TRANSLATE') {
-    chrome.runtime.sendMessage({
-      type: 'ACTIVATE_TRANSLATE',
-      text: message.text
-    }).catch(() => { });
-    sendResponse({ success: true });
-  }
+  if (message.type === 'QUICK_TRANSLATE' || message.type === 'QUICK_AI_ASK') {
+    const actionType = message.type === 'QUICK_TRANSLATE' ? 'translate' : 'ai';
+    const msgType = actionType === 'translate' ? 'ACTIVATE_TRANSLATE' : 'ACTIVATE_AI_WITH_CONTEXT';
 
-  if (message.type === 'QUICK_AI_ASK') {
-    chrome.runtime.sendMessage({
-      type: 'ACTIVATE_AI_WITH_CONTEXT',
-      text: message.text
+    // MUST call open() synchronously to preserve the user gesture context
+    if (sender && sender.tab && sender.tab.windowId) {
+      chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch((e) => {
+        console.warn('Side panel open failed:', e);
+      });
+    }
+
+    // Set fallback intent in session storage
+    chrome.storage.session.set({
+      pendingSidebarAction: {
+        action: actionType,
+        text: message.text,
+        timestamp: Date.now()
+      }
     }).catch(() => { });
+
+    // Attempt to send message in case sidebar is already successfully open
+    setTimeout(() => {
+      chrome.runtime.sendMessage({
+        type: msgType,
+        text: message.text
+      }).catch(() => { });
+    }, 150);
+
     sendResponse({ success: true });
+    return true;
   }
 
   if (message.type === 'TRANSLATE') {
@@ -106,6 +134,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             type: 'MARKER_UPDATED',
           }).catch(() => { });
         }
+
+        if (LIBRARY_NOTIFY_OPS.has(operation)) {
+          chrome.runtime.sendMessage({
+            type: 'LIBRARY_UPDATED',
+          }).catch(() => { });
+        }
+
+        if (NOTE_NOTIFY_OPS.has(operation)) {
+          chrome.runtime.sendMessage({
+            type: 'NOTE_UPDATED',
+          }).catch(() => { });
+        }
+
         sendResponse({ success: true, data: result });
       })
       .catch(error => sendResponse({ success: false, error: error.message }));

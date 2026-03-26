@@ -182,8 +182,16 @@
       addFolderBtn.dataset.parentFolderId = normalizedFolderId;
       addFolderBtn.textContent = 'フォルダを作成';
 
+      const addNoteBtn = document.createElement('button');
+      addNoteBtn.type = 'button';
+      addNoteBtn.className = 'library-add-menu-btn';
+      addNoteBtn.dataset.action = 'add-note';
+      addNoteBtn.dataset.parentFolderId = normalizedFolderId;
+      addNoteBtn.textContent = 'メモを追加';
+
       menu.appendChild(addSiteBtn);
       menu.appendChild(addFolderBtn);
+      menu.appendChild(addNoteBtn);
       addWrap.appendChild(addBtn);
       addWrap.appendChild(menu);
       actions.appendChild(addWrap);
@@ -669,6 +677,52 @@
           return;
         }
 
+        if (action === 'add-note') {
+          const page = await getActivePageContext();
+          const siteUrl = String(page?.url || '').trim();
+          const siteTitle = String(page?.title || '').trim();
+
+          if (!siteUrl) {
+            setStatus(libraryStatus, '現在のページ情報を取得できません。', true);
+            return;
+          }
+
+          const siteFolderResponse = await sendDbOp('library.createSiteFolder', {
+            url: siteUrl,
+            title: siteTitle,
+            parentFolderId: button.dataset.parentFolderId || null,
+          });
+
+          if (!siteFolderResponse?.success) {
+            setStatus(libraryStatus, siteFolderResponse?.error || 'サイトフォルダの登録に失敗しました。', true);
+            return;
+          }
+
+          const noteResponse = await sendDbOp('note.upsert', {
+            url: siteUrl,
+            title: siteTitle,
+            markdown: '',
+          });
+
+          if (!noteResponse?.success || !noteResponse.data?.noteId) {
+            setStatus(libraryStatus, 'メモの作成に失敗しました。', true);
+            return;
+          }
+
+          openMenuFolderId = null;
+
+          const notesModeButton = document.getElementById('modeNotesBtn');
+          if (notesModeButton) {
+            notesModeButton.click();
+          }
+
+          window.dispatchEvent(new CustomEvent('deepl:openNoteFromLibrary', {
+            detail: { noteId: noteResponse.data.noteId },
+          }));
+          setStatus(libraryStatus, 'メモを作成しました。');
+          return;
+        }
+
         if (action === 'create-folder') {
           const nextName = window.prompt('フォルダ名を入力してください');
           if (!String(nextName || '').trim()) return;
@@ -802,11 +856,25 @@
       setStatus(libraryStatus, 'フォルダを作成しました。');
     });
 
+    let libraryDirty = false;
+
     window.addEventListener('deepl:workspaceModeChanged', (event) => {
       if (event?.detail?.mode !== 'library') return;
+      if (libraryDirty) {
+        libraryDirty = false;
+      }
       refreshLibraryData(elements).catch((error) => {
         setStatus(libraryStatus, error.message || 'ライブラリーの更新に失敗しました。', true);
       });
+    });
+
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type !== 'LIBRARY_UPDATED') return;
+      if (libraryWorkspace.classList.contains('hidden')) {
+        libraryDirty = true;
+        return;
+      }
+      scheduleRefresh(elements);
     });
 
     refreshLibraryData(elements).catch((error) => {
