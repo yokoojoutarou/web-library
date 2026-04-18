@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeepL Translate</title>
+  <title>Web Library Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -11,32 +11,9 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-  <!-- Header -->
-  <header class="header">
-    <div class="header-left">
-      <div class="logo">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
-        </svg>
-      </div>
-      <h1 class="title">DeepL Translate</h1>
-    </div>
-    <button id="settingsBtn" class="icon-btn" title="Settings">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-      </svg>
-    </button>
-  </header>
-
-  <div class="mode-switch" role="tablist" aria-label="Workspace mode">
-    <button id="modeTranslateBtn" class="mode-btn active" role="tab" aria-selected="true">Translate</button>
-    <button id="modeAiBtn" class="mode-btn" role="tab" aria-selected="false">Ask AI</button>
-  </div>
-
-  <div id="translateWorkspace">
+  <div class="app-shell">
+    <div class="workspace-area">
+      <div id="translateWorkspace">
 
   <!-- Language Selector -->
   <div class="lang-bar">
@@ -85,7 +62,7 @@
         <option value="KO">한국어</option>
       </select>
     </div>
-  </div>
+      </div>
 
   <!-- Source Text -->
   <div class="card source-card">
@@ -154,7 +131,17 @@
 
   </div>
 
-  <div id="aiWorkspace" class="hidden">
+      <div id="aiWorkspace" class="hidden">
+    <div class="ai-toolbar">
+      <button id="aiHistoryBtn" class="toolbar-btn" type="button">履歴</button>
+      <button id="aiNewChatBtn" class="toolbar-btn toolbar-btn-primary" type="button">新しいチャット</button>
+    </div>
+
+    <div id="aiThreadPanel" class="thread-panel hidden">
+      <div class="thread-panel-header">スレッド一覧</div>
+      <div id="aiThreadList" class="thread-list"></div>
+    </div>
+
     <div id="aiMessages" class="ai-messages">
       <div class="ai-msg ai-msg-assistant">
         <div class="ai-msg-body">質問を入力してください。現在は雛形のため、スタブ応答を返します。</div>
@@ -162,6 +149,21 @@
     </div>
 
     <div class="ai-input-dock">
+      <div id="aiContextList" class="ai-context-list"></div>
+      <div id="aiContextPreview" class="ai-context-chip ai-context-chip--preview hidden">
+        <button id="aiContextAddBtn" class="ai-context-chip-action ai-context-chip-action--add" type="button" title="コンテキストに追加" aria-label="コンテキストに追加">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+        <svg class="ai-context-chip-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        <span id="aiContextPreviewText" class="ai-context-chip-text"></span>
+      </div>
       <div class="ai-input-shell">
         <textarea id="aiPromptInput" rows="3" placeholder="Ask follow-up, summarize, explain, or rewrite..."></textarea>
         <button id="aiSendBtn" class="ai-send-btn" title="Send message" aria-label="Send message">
@@ -172,6 +174,190 @@
         </button>
       </div>
     </div>
+      </div>
+
+      <div id="notesWorkspace" class="hidden">
+    <div id="notesLayout" class="notes-layout">
+      <aside class="notes-sidebar">
+        <button id="notesNewBtn" class="notes-new-btn notes-new-btn-top" type="button">+ 新規作成</button>
+
+        <div class="notes-section">
+          <button id="notesPageSectionToggle" class="notes-section-toggle" type="button" aria-expanded="true">
+            <span>このページのメモ</span>
+            <span class="notes-section-caret">▾</span>
+          </button>
+          <div id="notesPageSectionBody" class="notes-section-body">
+            <div id="notesPageList" class="notes-list"></div>
+          </div>
+        </div>
+
+        <div class="notes-section">
+          <button id="notesAllSectionToggle" class="notes-section-toggle" type="button" aria-expanded="true">
+            <span>すべてのメモ</span>
+            <span class="notes-section-caret">▾</span>
+          </button>
+          <div id="notesAllSectionBody" class="notes-section-body">
+            <div id="notesAllList" class="notes-list"></div>
+          </div>
+        </div>
+      </aside>
+
+      <section id="notesEditorWrap" class="notes-editor-wrap">
+        <div class="notes-editor-actions">
+          <button id="notesBackBtn" class="toolbar-btn" type="button">← 戻る</button>
+          <button id="notesInsertSelectionBtn" class="toolbar-btn" type="button">選択テキスト引用</button>
+        </div>
+
+        <div class="notes-field-group">
+          <label for="notesTagsInput" class="notes-field-label">Tags (comma separated)</label>
+          <input id="notesTagsInput" class="notes-tags-input" type="text" placeholder="research, summary, todo">
+        </div>
+
+        <div id="notesSheet" class="notes-pane notes-sheet">
+          <div id="notesSheetTitle" class="notes-pane-title">Preview</div>
+          <textarea id="notesMarkdownInput" class="notes-markdown-input hidden" placeholder="# Notes\n\nWrite your note here..."></textarea>
+          <div id="notesPreview" class="notes-preview"></div>
+        </div>
+
+        <div id="notesStatus" class="notes-status"></div>
+      </section>
+    </div>
+      </div>
+
+      <div id="markersWorkspace" class="hidden">
+    <div class="markers-layout">
+      <div class="markers-toolbar">
+        <button id="markersRefreshBtn" class="toolbar-btn" type="button">再読み込み</button>
+      </div>
+
+      <div class="markers-section">
+        <div class="markers-section-title">このページのマーカー</div>
+        <div id="markersList" class="markers-list"></div>
+      </div>
+
+      <div id="markersStatus" class="notes-status"></div>
+    </div>
+      </div>
+
+      <div id="libraryWorkspace" class="hidden">
+    <div class="library-layout">
+      <div class="library-toolbar">
+        <button id="libraryCreateFolderBtn" class="library-create-folder-btn" type="button" title="フォルダを新規作成" aria-label="フォルダを新規作成">＋</button>
+        <input id="librarySearchInput" class="library-search-input" type="search" placeholder="タイトル・URL・メモで検索">
+      </div>
+      <div id="libraryExplorer" class="library-explorer"></div>
+      <div id="libraryStatus" class="notes-status"></div>
+      <div id="libraryTrash" class="library-entry library-trash-row" data-entry-type="trash">
+        <div class="library-entry-main">
+          <span class="library-entry-sub">🗑</span>
+          <div class="library-entry-name">ゴミ箱（ここにドロップで削除）</div>
+        </div>
+      </div>
+    </div>
+      </div>
+    </div>
+
+    <aside id="actionRail" class="action-rail" role="toolbar" aria-label="Workspace actions">
+      <button
+        id="settingsBtn"
+        class="icon-btn mode-btn rail-btn"
+        type="button"
+        data-action-id="settings"
+        draggable="true"
+        title="設定"
+        aria-label="設定"
+      >
+        <svg class="rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.2"></circle>
+          <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a1.8 1.8 0 1 1-2.5 2.5l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a1.8 1.8 0 1 1-3.6 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1.8 1.8 0 1 1-2.5-2.5l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a1.8 1.8 0 1 1 0-3.6h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1.8 1.8 0 1 1 2.5-2.5l.1.1a1 1 0 0 0 1.1.2h.1a1 1 0 0 0 .5-.9V4a1.8 1.8 0 1 1 3.6 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1.8 1.8 0 1 1 2.5 2.5l-.1.1a1 1 0 0 0-.2 1.1v.1a1 1 0 0 0 .9.5H20a1.8 1.8 0 1 1 0 3.6h-.2a1 1 0 0 0-.9.6Z"></path>
+        </svg>
+      </button>
+
+      <button
+        id="modeTranslateBtn"
+        class="mode-btn rail-btn active"
+        type="button"
+        data-action-id="translate"
+        draggable="true"
+        title="Translate"
+        aria-label="Translate"
+        aria-pressed="true"
+      >
+        <svg class="rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M4 12h16"></path>
+          <path d="M12 4a12 12 0 0 1 0 16"></path>
+          <path d="M12 4a12 12 0 0 0 0 16"></path>
+        </svg>
+      </button>
+      <button
+        id="modeAiBtn"
+        class="mode-btn rail-btn"
+        type="button"
+        data-action-id="ai"
+        draggable="true"
+        title="Ask AI"
+        aria-label="Ask AI"
+        aria-pressed="false"
+      >
+        <svg class="rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <rect x="6" y="8" width="12" height="10" rx="3"></rect>
+          <path d="M9 8V6a3 3 0 0 1 6 0v2"></path>
+          <circle cx="10" cy="13" r="1"></circle>
+          <circle cx="14" cy="13" r="1"></circle>
+          <path d="M10 16h4"></path>
+        </svg>
+      </button>
+      <button
+        id="modeNotesBtn"
+        class="mode-btn rail-btn"
+        type="button"
+        data-action-id="notes"
+        draggable="true"
+        title="Notes"
+        aria-label="Notes"
+        aria-pressed="false"
+      >
+        <svg class="rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M7 4h8l3 3v13H7z"></path>
+          <path d="M15 4v3h3"></path>
+          <path d="M10 11h5"></path>
+          <path d="M10 14h5"></path>
+        </svg>
+      </button>
+      <button
+        id="modeMarkersBtn"
+        class="mode-btn rail-btn"
+        type="button"
+        data-action-id="markers"
+        draggable="true"
+        title="Markers"
+        aria-label="Markers"
+        aria-pressed="false"
+      >
+        <svg class="rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M6 16l8-8 4 4-8 8H6z"></path>
+          <path d="M14 8l2-2 4 4-2 2"></path>
+          <path d="M6 16l-2 4 4-2"></path>
+        </svg>
+      </button>
+      <button
+        id="modeLibraryBtn"
+        class="mode-btn rail-btn"
+        type="button"
+        data-action-id="library"
+        draggable="true"
+        title="Library"
+        aria-label="Library"
+        aria-pressed="false"
+      >
+        <svg class="rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M6 5h4v14H6z"></path>
+          <path d="M10 5h5v14h-5"></path>
+          <path d="M15 7h3v12h-3"></path>
+        </svg>
+      </button>
+    </aside>
   </div>
 
   <!-- Settings Modal -->
@@ -245,6 +431,9 @@
   <script src="../../../vendor/markdown-it.min.js"></script>
   <script src="../../../vendor/markdown-it-multimd-table.min.js"></script>
   <script src="../../ai/sidepanel/ai-chat.js"></script>
+  <script src="../../notes/sidepanel/note-panel.js"></script>
+  <script src="../../marker/sidepanel/marker-panel.js"></script>
+  <script src="../../library/sidepanel/library-panel.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

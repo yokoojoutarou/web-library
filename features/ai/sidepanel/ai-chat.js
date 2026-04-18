@@ -1,14 +1,21 @@
 (() => {
+  const DEFAULT_GREETING = '質問を入力してください。新しいチャットを始めるか、履歴からスレッドを再開できます。';
+  const ACTIVE_THREAD_STORAGE_KEY = 'aiActiveThreadId';
+
   let latestSelectedText = '';
+  let activeThreadId = null;
+  let currentThreadMessages = [];
+  let confirmedContexts = [];
+
   const hasMarkdownIt = typeof window.markdownit === 'function';
   const hasKatex = typeof window.katex?.renderToString === 'function';
 
   const markdownRenderer = hasMarkdownIt
     ? window.markdownit({
-        html: false,
-        linkify: true,
-        breaks: true,
-      })
+      html: false,
+      linkify: true,
+      breaks: true,
+    })
     : null;
 
   if (markdownRenderer && typeof window.markdownitMultimdTable === 'function') {
@@ -129,10 +136,10 @@
       body.innerHTML = markdownRenderer
         ? markdownRenderer.render(text || '')
         : (text || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/\n/g, '<br>');
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\n/g, '<br>');
     } else {
       body.textContent = text;
     }
@@ -145,22 +152,224 @@
     container.scrollTop = container.scrollHeight;
   }
 
+  async function sendDbOp(operation, payload = {}) {
+    return chrome.runtime.sendMessage({
+      type: 'DB_OP',
+      operation,
+      payload,
+    });
+  }
+
+  function createThreadItem(thread, isActive) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `thread-item ${isActive ? 'active' : ''}`;
+    item.dataset.threadId = thread.threadId;
+
+    const title = document.createElement('div');
+    title.className = 'thread-item-title';
+    title.textContent = thread.title || 'New Chat';
+
+    const meta = document.createElement('div');
+    meta.className = 'thread-item-meta';
+    const count = Number(thread.messageCount || 0);
+    meta.textContent = `${thread.updatedAt || ''} • ${count} messages`;
+
+    item.appendChild(title);
+    item.appendChild(meta);
+    return item;
+  }
+
+  function renderThreadList(container, threads) {
+    container.innerHTML = '';
+
+    if (!Array.isArray(threads) || threads.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'thread-item-meta';
+      empty.textContent = '履歴はまだありません。';
+      container.appendChild(empty);
+      return;
+    }
+
+    threads.forEach((thread) => {
+      container.appendChild(createThreadItem(thread, thread.threadId === activeThreadId));
+    });
+  }
+
+  function normalizePersistedMessages(messages) {
+    if (!Array.isArray(messages)) return [];
+
+    return messages
+      .map((message) => {
+        const role = message?.role;
+        if (role !== 'user' && role !== 'assistant') {
+          return null;
+        }
+
+        if (typeof message?.content !== 'string') {
+          return null;
+        }
+
+        const content = message.content.trim();
+        if (!content) {
+          return null;
+        }
+
+        return {
+          role,
+          content,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function renderConversation(aiMessages, messages) {
+    aiMessages.innerHTML = '';
+
+    const normalizedMessages = normalizePersistedMessages(messages);
+
+    if (normalizedMessages.length === 0) {
+      aiMessages.appendChild(createMessage('assistant', DEFAULT_GREETING));
+      scrollToBottom(aiMessages);
+      return;
+    }
+
+    normalizedMessages.forEach((message) => {
+      aiMessages.appendChild(createMessage(message.role, message.content));
+    });
+
+    scrollToBottom(aiMessages);
+  }
+
+  async function setActiveThreadId(nextThreadId) {
+    activeThreadId = nextThreadId || null;
+    await chrome.storage.local.set({ [ACTIVE_THREAD_STORAGE_KEY]: activeThreadId });
+  }
+
   function init() {
     const aiMessages = document.getElementById('aiMessages');
     const aiPromptInput = document.getElementById('aiPromptInput');
     const aiSendBtn = document.getElementById('aiSendBtn');
+    const aiHistoryBtn = document.getElementById('aiHistoryBtn');
+    const aiNewChatBtn = document.getElementById('aiNewChatBtn');
+    const aiThreadPanel = document.getElementById('aiThreadPanel');
+    const aiThreadList = document.getElementById('aiThreadList');
+    const aiContextPreview = document.getElementById('aiContextPreview');
+    const aiContextPreviewText = document.getElementById('aiContextPreviewText');
+    const aiContextAddBtn = document.getElementById('aiContextAddBtn');
+    const aiContextList = document.getElementById('aiContextList');
 
-    if (!aiMessages || !aiPromptInput || !aiSendBtn) {
+    if (!aiMessages || !aiPromptInput || !aiSendBtn || !aiHistoryBtn || !aiNewChatBtn || !aiThreadPanel || !aiThreadList) {
       return;
     }
 
     let isAsking = false;
 
+    // --- Context chip helpers ---
+    const DOCUMENT_ICON_SVG = '<svg class="ai-context-chip-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+
+    function createConfirmedChip(text) {
+      const chip = document.createElement('div');
+      chip.className = 'ai-context-chip ai-context-chip--confirmed';
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'ai-context-chip-action ai-context-chip-action--remove';
+      removeBtn.type = 'button';
+      removeBtn.title = 'コンテキストを削除';
+      removeBtn.setAttribute('aria-label', 'コンテキストを削除');
+      removeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+      const iconSpan = document.createElement('span');
+      iconSpan.innerHTML = DOCUMENT_ICON_SVG;
+
+      const textSpan = document.createElement('span');
+      textSpan.className = 'ai-context-chip-text';
+      textSpan.textContent = text;
+
+      chip.appendChild(removeBtn);
+      chip.appendChild(iconSpan);
+      chip.appendChild(textSpan);
+
+      removeBtn.addEventListener('click', () => {
+        const idx = confirmedContexts.indexOf(text);
+        if (idx !== -1) confirmedContexts.splice(idx, 1);
+        chip.remove();
+      });
+
+      return chip;
+    }
+
+    function updatePreviewChip(text) {
+      if (!aiContextPreview || !aiContextPreviewText) return;
+      if (text) {
+        aiContextPreviewText.textContent = text;
+        aiContextPreview.classList.remove('hidden');
+      } else {
+        aiContextPreview.classList.add('hidden');
+        aiContextPreviewText.textContent = '';
+      }
+    }
+
+    function clearConfirmedContexts() {
+      confirmedContexts = [];
+      if (aiContextList) aiContextList.innerHTML = '';
+    }
+
+    if (aiContextAddBtn) {
+      aiContextAddBtn.addEventListener('click', () => {
+        const text = latestSelectedText.trim();
+        if (!text) return;
+        confirmedContexts.push(text);
+        if (aiContextList) {
+          aiContextList.appendChild(createConfirmedChip(text));
+        }
+        updatePreviewChip('');
+      });
+    }
+
+    const refreshThreads = async () => {
+      try {
+        const response = await sendDbOp('thread.list', { limit: 50 });
+        renderThreadList(aiThreadList, response?.success ? response.data : []);
+      } catch {
+        renderThreadList(aiThreadList, []);
+      }
+    };
+
+    const openThread = async (threadId) => {
+      if (!threadId) return;
+
+      const response = await sendDbOp('thread.get', { threadId });
+      if (!response?.success || !response.data) return;
+
+      const thread = response.data;
+      currentThreadMessages = normalizePersistedMessages(thread.messages);
+      await setActiveThreadId(thread.threadId);
+      renderConversation(aiMessages, currentThreadMessages);
+      clearConfirmedContexts();
+      updatePreviewChip('');
+      await refreshThreads();
+    };
+
+    const startNewChat = async () => {
+      currentThreadMessages = [];
+      await setActiveThreadId(null);
+      renderConversation(aiMessages, currentThreadMessages);
+      aiPromptInput.value = '';
+      clearConfirmedContexts();
+      updatePreviewChip('');
+      await refreshThreads();
+    };
+
     const ask = async () => {
       const prompt = aiPromptInput.value.trim();
       if (!prompt || isAsking) return;
 
-      const contextText = latestSelectedText;
+      const contextText = confirmedContexts.length > 0
+        ? confirmedContexts.join('\n\n---\n\n')
+        : '';
+      const userMessage = { role: 'user', content: prompt, timestamp: new Date().toISOString() };
+      currentThreadMessages.push(userMessage);
       aiMessages.appendChild(createMessage('user', prompt));
 
       const pending = createMessage('assistant', 'Thinking...');
@@ -176,16 +385,31 @@
           type: 'AI_ASK',
           prompt,
           contextText,
+          activeThreadId,
         });
 
         pending.remove();
 
         if (response?.success) {
+          const assistantMessage = {
+            role: 'assistant',
+            content: response.data.answer,
+            timestamp: new Date().toISOString(),
+          };
+          currentThreadMessages.push(assistantMessage);
           aiMessages.appendChild(createMessage('assistant', response.data.answer));
+
+          if (response.data?.threadId) {
+            await setActiveThreadId(response.data.threadId);
+          }
+
+          await refreshThreads();
         } else {
+          currentThreadMessages.pop();
           aiMessages.appendChild(createMessage('assistant', response?.error || 'AI request failed.'));
         }
       } catch (error) {
+        currentThreadMessages.pop();
         pending.remove();
         aiMessages.appendChild(createMessage('assistant', 'Connection error. Please try again.'));
       } finally {
@@ -196,6 +420,23 @@
     };
 
     aiSendBtn.addEventListener('click', ask);
+    aiHistoryBtn.addEventListener('click', async () => {
+      aiThreadPanel.classList.toggle('hidden');
+      if (!aiThreadPanel.classList.contains('hidden')) {
+        await refreshThreads();
+      }
+    });
+
+    aiNewChatBtn.addEventListener('click', () => {
+      startNewChat().catch(() => { });
+    });
+
+    aiThreadList.addEventListener('click', (event) => {
+      const target = event.target.closest('.thread-item');
+      if (!target) return;
+      const threadId = target.dataset.threadId;
+      openThread(threadId).catch(() => { });
+    });
 
     aiPromptInput.addEventListener('keydown', (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -206,9 +447,34 @@
 
     window.addEventListener('deepl:selectedTextUpdated', (event) => {
       latestSelectedText = event.detail?.text || '';
+      updatePreviewChip(latestSelectedText);
     });
 
-    scrollToBottom(aiMessages);
+    window.addEventListener('deepl:addAiContext', (event) => {
+      const text = (event.detail?.text || '').trim();
+      if (!text) return;
+      confirmedContexts.push(text);
+      if (aiContextList) {
+        aiContextList.appendChild(createConfirmedChip(text));
+      }
+      updatePreviewChip('');
+      if (aiPromptInput) {
+        aiPromptInput.focus();
+      }
+    });
+
+    (async () => {
+      const saved = await chrome.storage.local.get([ACTIVE_THREAD_STORAGE_KEY]);
+      const savedThreadId = saved?.[ACTIVE_THREAD_STORAGE_KEY];
+      if (savedThreadId) {
+        await openThread(savedThreadId);
+      } else {
+        renderConversation(aiMessages, []);
+      }
+      await refreshThreads();
+    })().catch(() => {
+      renderConversation(aiMessages, []);
+    });
   }
 
   window.AIChatFeature = { init };

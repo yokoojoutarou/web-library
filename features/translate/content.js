@@ -1,12 +1,20 @@
 // ==============================
-// DeepL Translate — Content Script
+// Web Library Assistant — Content Script
 // ==============================
 
 (() => {
     let debounceTimer = null;
     let isContextAlive = true;
+    let activeMarkerId = null;
     const MAX_PAGE_CONTEXT_CHARS = 22000;
     const MAX_SELECTION_CHARS = 4000;
+    const MAX_MARKERS_PER_PAGE = 300;
+    const RESTORE_RETRY_COUNT = 5;
+    const RESTORE_RETRY_DELAY_MS = 350;
+    const MARKER_COLORS = ['yellow', 'green', 'pink'];
+    const markerCache = new Map();
+    let selectionPaletteElement = null;
+    let markerActionMenuElement = null;
     const NOISE_SELECTORS = [
         'script', 'style', 'noscript', 'svg', 'canvas', 'iframe',
         'header', 'footer', 'nav', 'aside',
@@ -25,7 +33,7 @@
         const message = error?.message || String(error);
         if (message.includes('Extension context invalidated')) {
             isContextAlive = false;
-            console.warn('[DeepL Translate][content] extension_context_invalidated', {
+            console.warn('[Web Library Assistant][content] extension_context_invalidated', {
                 trigger,
                 error: message
             });
@@ -47,7 +55,7 @@
                 })
             ).catch((error) => {
                 if (!markContextInvalidated(error, trigger)) {
-                    console.warn('[DeepL Translate][content] text_selected_send_failed', {
+                    console.warn('[Web Library Assistant][content] text_selected_send_failed', {
                         trigger,
                         error: error?.message || String(error)
                     });
@@ -55,7 +63,7 @@
             });
         } catch (error) {
             if (!markContextInvalidated(error, trigger)) {
-                console.warn('[DeepL Translate][content] text_selected_send_failed_sync', {
+                console.warn('[Web Library Assistant][content] text_selected_send_failed_sync', {
                     trigger,
                     error: error?.message || String(error)
                 });
@@ -69,6 +77,10 @@
             .replace(/\n{3,}/g, '\n\n')
             .replace(/[ \t]{2,}/g, ' ')
             .trim();
+    }
+
+    function escapeRegExp(value) {
+        return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
     function extractActiveElementSelection() {
@@ -196,6 +208,750 @@
         };
     }
 
+    function ensureMarkerStyles() {
+        if (document.getElementById('deepl-marker-style')) {
+            return;
+        }
+
+        const style = document.createElement('style');
+        style.id = 'deepl-marker-style';
+        style.textContent = `
+            .deepl-marker-highlight {
+                cursor: pointer;
+                border-radius: 2px;
+                box-decoration-break: clone;
+                -webkit-box-decoration-break: clone;
+            }
+            .deepl-marker-highlight[data-marker-color="yellow"] {
+                background: rgba(255, 226, 79, 0.45);
+            }
+            .deepl-marker-highlight[data-marker-color="green"] {
+                background: rgba(34, 197, 94, 0.35);
+            }
+            .deepl-marker-highlight[data-marker-color="pink"] {
+                background: rgba(244, 114, 182, 0.35);
+            }
+            .deepl-marker-ui {
+                position: fixed;
+                z-index: 2147483645;
+                display: none;
+                background: rgba(17, 24, 39, 0.96);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+                padding: 6px;
+                gap: 6px;
+                align-items: center;
+            }
+            .deepl-marker-ui button {
+                border: none;
+                width: 24px;
+                height: 24px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .deepl-marker-ui .deepl-marker-color-yellow { background: #fde047; }
+            .deepl-marker-ui .deepl-marker-color-green { background: #22c55e; }
+            .deepl-marker-ui .deepl-marker-color-pink { background: #f472b6; }
+            .deepl-marker-ui .deepl-marker-delete {
+                background: rgba(255, 255, 255, 0.08);
+                color: #ffffff;
+            }
+            .deepl-marker-ui-divider {
+                width: 1px;
+                height: 18px;
+                background: rgba(255, 255, 255, 0.18);
+                margin: 0 2px;
+                flex-shrink: 0;
+            }
+            .deepl-selection-action {
+                background: rgba(255, 255, 255, 0.08) !important;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background 0.15s;
+            }
+            .deepl-selection-action:hover {
+                background: rgba(255, 255, 255, 0.18) !important;
+            }
+            .deepl-selection-action svg {
+                width: 15px;
+                height: 15px;
+                stroke: #ffffff;
+                fill: none;
+                stroke-width: 1.8;
+            }
+        `;
+
+        document.documentElement.appendChild(style);
+    }
+
+    function ensureSelectionPalette() {
+        if (selectionPaletteElement) return;
+
+        selectionPaletteElement = document.createElement('div');
+        selectionPaletteElement.className = 'deepl-marker-ui';
+        selectionPaletteElement.id = 'deepl-marker-selection-palette';
+        selectionPaletteElement.innerHTML = `
+            <button type="button" class="deepl-marker-color-yellow" data-color="yellow" title="Yellow" aria-label="Yellow marker"></button>
+            <button type="button" class="deepl-marker-color-green" data-color="green" title="Green" aria-label="Green marker"></button>
+            <button type="button" class="deepl-marker-color-pink" data-color="pink" title="Pink" aria-label="Pink marker"></button>
+            <span class="deepl-marker-ui-divider"></span>
+            <button type="button" class="deepl-selection-action" data-action="translate" title="翻訳" aria-label="翻訳">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16"></path><path d="M12 4a12 12 0 0 1 0 16"></path><path d="M12 4a12 12 0 0 0 0 16"></path></svg>
+            </button>
+            <button type="button" class="deepl-selection-action" data-action="ai" title="AIに質問" aria-label="AIに質問">
+                <svg viewBox="0 0 24 24"><rect x="6" y="8" width="12" height="10" rx="3"></rect><path d="M9 8V6a3 3 0 0 1 6 0v2"></path><circle cx="10" cy="13" r="1"></circle><circle cx="14" cy="13" r="1"></circle><path d="M10 16h4"></path></svg>
+            </button>
+        `;
+
+        selectionPaletteElement.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+        });
+
+        selectionPaletteElement.addEventListener('click', (event) => {
+            const colorBtn = event.target.closest('button[data-color]');
+            if (colorBtn) {
+                const color = colorBtn.dataset.color;
+                if (!MARKER_COLORS.includes(color)) return;
+                createMarkerFromSelection(color).catch(() => { });
+                return;
+            }
+
+            const actionBtn = event.target.closest('button[data-action]');
+            if (!actionBtn) return;
+            const action = actionBtn.dataset.action;
+            const text = getCurrentSelectionText();
+            if (!text) return;
+
+            if (action === 'translate') {
+                chrome.runtime.sendMessage({ type: 'QUICK_TRANSLATE', text }).catch(() => { });
+                hideSelectionPalette();
+            } else if (action === 'ai') {
+                chrome.runtime.sendMessage({ type: 'QUICK_AI_ASK', text }).catch(() => { });
+                hideSelectionPalette();
+            }
+        });
+
+        document.body.appendChild(selectionPaletteElement);
+    }
+
+    function ensureMarkerActionMenu() {
+        if (markerActionMenuElement) return;
+
+        markerActionMenuElement = document.createElement('div');
+        markerActionMenuElement.className = 'deepl-marker-ui';
+        markerActionMenuElement.id = 'deepl-marker-action-menu';
+        markerActionMenuElement.innerHTML = `
+            <button type="button" class="deepl-marker-color-yellow" data-action="color" data-color="yellow" title="Yellow" aria-label="Change to yellow"></button>
+            <button type="button" class="deepl-marker-color-green" data-action="color" data-color="green" title="Green" aria-label="Change to green"></button>
+            <button type="button" class="deepl-marker-color-pink" data-action="color" data-color="pink" title="Pink" aria-label="Change to pink"></button>
+            <button type="button" class="deepl-marker-delete" data-action="delete" title="Delete" aria-label="Delete marker">🗑</button>
+        `;
+
+        markerActionMenuElement.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+        });
+
+        markerActionMenuElement.addEventListener('click', (event) => {
+            const button = event.target.closest('button[data-action]');
+            if (!button || !activeMarkerId) return;
+
+            const action = button.dataset.action;
+            if (action === 'delete') {
+                deleteMarker(activeMarkerId).catch(() => { });
+                return;
+            }
+
+            if (action === 'color') {
+                const color = button.dataset.color;
+                if (!MARKER_COLORS.includes(color)) return;
+                recolorMarker(activeMarkerId, color).catch(() => { });
+            }
+        });
+
+        document.body.appendChild(markerActionMenuElement);
+    }
+
+    function showUiAt(uiElement, rect) {
+        if (!uiElement || !rect) return;
+
+        uiElement.style.visibility = 'hidden';
+        uiElement.style.display = 'flex';
+
+        const viewportWidth = Math.max(window.innerWidth || 0, document.documentElement.clientWidth || 0);
+        const viewportHeight = Math.max(window.innerHeight || 0, document.documentElement.clientHeight || 0);
+        const uiWidth = uiElement.offsetWidth || 0;
+        const uiHeight = uiElement.offsetHeight || 0;
+        const margin = 8;
+
+        const minLeft = margin;
+        const maxLeft = Math.max(minLeft, viewportWidth - uiWidth - margin);
+        const minTop = margin;
+        const maxTop = Math.max(minTop, viewportHeight - uiHeight - margin);
+
+        const top = Math.max(minTop, Math.min(maxTop, rect.top - 42));
+        const left = Math.max(minLeft, Math.min(maxLeft, rect.left));
+
+        uiElement.style.top = `${top}px`;
+        uiElement.style.left = `${left}px`;
+        uiElement.style.visibility = 'visible';
+    }
+
+    function hideSelectionPalette() {
+        if (selectionPaletteElement) {
+            selectionPaletteElement.style.display = 'none';
+        }
+    }
+
+    function hideMarkerActionMenu() {
+        if (markerActionMenuElement) {
+            markerActionMenuElement.style.display = 'none';
+        }
+        activeMarkerId = null;
+    }
+
+    function getTextWalker() {
+        return document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                if (!node || !node.nodeValue || !node.nodeValue.trim()) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                const parent = node.parentElement;
+                if (!parent) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                if (parent.closest('.deepl-marker-ui')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                if (parent.closest('.deepl-marker-highlight,[contenteditable="true"]')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                if (parent.closest('script,style,noscript,textarea,input')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                return NodeFilter.FILTER_ACCEPT;
+            },
+        });
+    }
+
+    function getGlobalTextOffset(targetNode, targetOffset) {
+        const walker = getTextWalker();
+        let current = walker.nextNode();
+        let offset = 0;
+
+        while (current) {
+            const length = current.nodeValue.length;
+            if (current === targetNode) {
+                return offset + Math.min(targetOffset, length);
+            }
+            offset += length;
+            current = walker.nextNode();
+        }
+
+        return -1;
+    }
+
+    function resolveTextPosition(globalOffset) {
+        const safeOffset = Math.max(0, Number(globalOffset) || 0);
+        const walker = getTextWalker();
+        let current = walker.nextNode();
+        let offset = 0;
+        let lastTextNode = null;
+
+        while (current) {
+            const length = current.nodeValue.length;
+            const nextOffset = offset + length;
+            lastTextNode = current;
+
+            if (safeOffset <= nextOffset) {
+                return {
+                    node: current,
+                    offset: Math.max(0, Math.min(length, safeOffset - offset)),
+                };
+            }
+
+            offset = nextOffset;
+            current = walker.nextNode();
+        }
+
+        if (!lastTextNode) return null;
+        return {
+            node: lastTextNode,
+            offset: lastTextNode.nodeValue.length,
+        };
+    }
+
+    function buildRangeDescriptor(range) {
+        const start = getGlobalTextOffset(range.startContainer, range.startOffset);
+        const end = getGlobalTextOffset(range.endContainer, range.endOffset);
+
+        if (start < 0 || end < 0 || end <= start) {
+            return null;
+        }
+
+        return { start, end };
+    }
+
+    function buildRangeFromDescriptor(rangeDescriptor) {
+        if (!rangeDescriptor || !Number.isFinite(rangeDescriptor.start) || !Number.isFinite(rangeDescriptor.end)) {
+            return null;
+        }
+
+        const start = resolveTextPosition(rangeDescriptor.start);
+        const end = resolveTextPosition(rangeDescriptor.end);
+
+        if (!start || !end) {
+            return null;
+        }
+
+        const range = document.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+
+        if (range.collapsed) {
+            return null;
+        }
+
+        return range;
+    }
+
+    function collectTextSegmentsInRange(range) {
+        const root = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+            ? range.commonAncestorContainer.parentNode
+            : range.commonAncestorContainer;
+
+        if (!root) return [];
+
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                if (!node || !node.nodeValue || !node.nodeValue.trim()) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                const parent = node.parentElement;
+                if (!parent) return NodeFilter.FILTER_REJECT;
+                if (parent.closest('.deepl-marker-ui')) return NodeFilter.FILTER_REJECT;
+                if (parent.closest('.deepl-marker-highlight')) return NodeFilter.FILTER_REJECT;
+                if (parent.closest('script,style,noscript,textarea,input,[contenteditable="true"]')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                if (!range.intersectsNode(node)) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+
+                return NodeFilter.FILTER_ACCEPT;
+            },
+        });
+
+        const segments = [];
+        let node = walker.nextNode();
+
+        while (node) {
+            const length = node.nodeValue.length;
+            let start = 0;
+            let end = length;
+
+            if (node === range.startContainer) {
+                start = range.startOffset;
+            }
+
+            if (node === range.endContainer) {
+                end = range.endOffset;
+            }
+
+            if (end > start) {
+                segments.push({ node, start, end });
+            }
+
+            node = walker.nextNode();
+        }
+
+        return segments;
+    }
+
+    function createMarkerSpan(markerId, color) {
+        const span = document.createElement('span');
+        span.className = 'deepl-marker-highlight';
+        span.dataset.markerId = markerId;
+        span.dataset.markerColor = color;
+        return span;
+    }
+
+    function applyRangeMarker(range, markerId, color) {
+        const segments = collectTextSegmentsInRange(range);
+        if (segments.length === 0) {
+            return false;
+        }
+
+        segments.reverse().forEach((segment) => {
+            let { node, start, end } = segment;
+
+            if (end < node.nodeValue.length) {
+                node.splitText(end);
+            }
+
+            if (start > 0) {
+                node = node.splitText(start);
+            }
+
+            const span = createMarkerSpan(markerId, color);
+            const parent = node.parentNode;
+            if (!parent) return;
+            parent.replaceChild(span, node);
+            span.appendChild(node);
+        });
+
+        return true;
+    }
+
+    function setMarkerColorInDom(markerId, color) {
+        document.querySelectorAll('.deepl-marker-highlight').forEach((element) => {
+            if (element.dataset.markerId === markerId) {
+                element.dataset.markerColor = color;
+            }
+        });
+    }
+
+    function removeMarkerFromDom(markerId) {
+        const targets = [];
+        document.querySelectorAll('.deepl-marker-highlight').forEach((element) => {
+            if (element.dataset.markerId === markerId) {
+                targets.push(element);
+            }
+        });
+
+        targets.forEach((element) => {
+            const parent = element.parentNode;
+            if (!parent) return;
+
+            while (element.firstChild) {
+                parent.insertBefore(element.firstChild, element);
+            }
+
+            parent.removeChild(element);
+            parent.normalize();
+        });
+    }
+
+    function findRangeByTextQuote(textQuote) {
+        const quote = String(textQuote || '');
+        if (!quote.trim()) {
+            return null;
+        }
+
+        const normalizedQuote = normalizeText(quote);
+        if (!normalizedQuote) {
+            return null;
+        }
+
+        const walker = getTextWalker();
+        let node = walker.nextNode();
+        while (node) {
+            const index = node.nodeValue.indexOf(quote);
+            if (index >= 0) {
+                const range = document.createRange();
+                range.setStart(node, index);
+                range.setEnd(node, index + quote.length);
+                return range;
+            }
+            node = walker.nextNode();
+        }
+
+        const nodeMeta = [];
+        const textWalker = getTextWalker();
+        let textNode = textWalker.nextNode();
+        let mergedText = '';
+
+        while (textNode) {
+            const start = mergedText.length;
+            mergedText += textNode.nodeValue;
+            const end = mergedText.length;
+            nodeMeta.push({ node: textNode, start, end });
+            textNode = textWalker.nextNode();
+        }
+
+        const quoteTokens = normalizedQuote.split(/\s+/).filter(Boolean);
+        if (quoteTokens.length === 0) {
+            return null;
+        }
+
+        const whitespaceTolerantPattern = quoteTokens
+            .map((token) => escapeRegExp(token))
+            .join('\\s+');
+        const regex = new RegExp(whitespaceTolerantPattern);
+        const match = regex.exec(mergedText);
+        if (!match) {
+            return null;
+        }
+
+        const quoteRawIndex = match.index;
+        const quoteRawEnd = Math.min(mergedText.length, quoteRawIndex + match[0].length);
+
+        if (quoteRawIndex < 0) {
+            return null;
+        }
+
+        let startPoint = null;
+        let endPoint = null;
+
+        nodeMeta.forEach((meta) => {
+            if (!startPoint && quoteRawIndex >= meta.start && quoteRawIndex <= meta.end) {
+                startPoint = {
+                    node: meta.node,
+                    offset: Math.max(0, Math.min(meta.node.nodeValue.length, quoteRawIndex - meta.start)),
+                };
+            }
+
+            if (!endPoint && quoteRawEnd >= meta.start && quoteRawEnd <= meta.end) {
+                endPoint = {
+                    node: meta.node,
+                    offset: Math.max(0, Math.min(meta.node.nodeValue.length, quoteRawEnd - meta.start)),
+                };
+            }
+        });
+
+        if (!startPoint || !endPoint) {
+            return null;
+        }
+
+        const range = document.createRange();
+        range.setStart(startPoint.node, startPoint.offset);
+        range.setEnd(endPoint.node, endPoint.offset);
+
+        if (range.collapsed) {
+            return null;
+        }
+
+        return range;
+    }
+
+    function getValidSelectionRange() {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) {
+            return null;
+        }
+
+        const range = selection.getRangeAt(0);
+        if (range.collapsed || !range.toString().trim()) {
+            return null;
+        }
+
+        const startElement = range.startContainer.nodeType === Node.ELEMENT_NODE
+            ? range.startContainer
+            : range.startContainer.parentElement;
+        const endElement = range.endContainer.nodeType === Node.ELEMENT_NODE
+            ? range.endContainer
+            : range.endContainer.parentElement;
+
+        if (!startElement || !endElement) {
+            return null;
+        }
+
+        if (startElement.closest('.deepl-marker-ui,.deepl-marker-highlight,[contenteditable="true"]') || endElement.closest('.deepl-marker-ui,.deepl-marker-highlight,[contenteditable="true"]')) {
+            return null;
+        }
+
+        if (startElement.closest('script,style,noscript,textarea,input') || endElement.closest('script,style,noscript,textarea,input')) {
+            return null;
+        }
+
+        return range;
+    }
+
+
+    async function sendDbOp(operation, payload = {}) {
+        return chrome.runtime.sendMessage({
+            type: 'DB_OP',
+            operation,
+            payload,
+        });
+    }
+
+    async function createMarkerFromSelection(color) {
+        const range = getValidSelectionRange();
+        if (!range) {
+            hideSelectionPalette();
+            return;
+        }
+
+        const rangeDescriptor = buildRangeDescriptor(range);
+        if (!rangeDescriptor) {
+            hideSelectionPalette();
+            return;
+        }
+
+        const textQuote = normalizeText(range.toString()).slice(0, 600);
+        const response = await sendDbOp('marker.upsert', {
+            url: location.href,
+            title: document.title,
+            color,
+            rangeDescriptor,
+            domLocator: {
+                href: location.href,
+            },
+            textQuote,
+        });
+
+        if (!response?.success || !response.data) {
+            return;
+        }
+
+        const marker = response.data;
+        markerCache.set(marker.markerId, marker);
+        applyRangeMarker(range, marker.markerId, marker.color);
+
+        const selection = window.getSelection();
+        if (selection) selection.removeAllRanges();
+        hideSelectionPalette();
+    }
+
+    async function recolorMarker(markerId, color) {
+        const existing = markerCache.get(markerId);
+        if (!existing) return;
+
+        const response = await sendDbOp('marker.upsert', {
+            markerId,
+            url: location.href,
+            title: document.title,
+            color,
+            rangeDescriptor: existing.rangeDescriptor,
+            domLocator: existing.domLocator,
+            textQuote: existing.textQuote,
+            tags: existing.tags || [],
+        });
+
+        if (!response?.success || !response.data) {
+            return;
+        }
+
+        markerCache.set(markerId, response.data);
+        setMarkerColorInDom(markerId, color);
+        hideMarkerActionMenu();
+    }
+
+    async function deleteMarker(markerId) {
+        const response = await sendDbOp('marker.delete', { markerId });
+        if (!response?.success) {
+            return;
+        }
+
+        markerCache.delete(markerId);
+        removeMarkerFromDom(markerId);
+        hideMarkerActionMenu();
+    }
+
+    function showMarkerActionMenu(markerId, rect) {
+        activeMarkerId = markerId;
+        ensureMarkerActionMenu();
+        showUiAt(markerActionMenuElement, rect);
+    }
+
+    function scrollToMarker(markerId) {
+        let target = null;
+        document.querySelectorAll('.deepl-marker-highlight').forEach((element) => {
+            if (!target && element.dataset.markerId === markerId) {
+                target = element;
+            }
+        });
+
+        if (!target) return false;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return true;
+    }
+
+    function restoreMarker(marker) {
+        if (!marker?.markerId || !marker?.color) return false;
+
+        const range = buildRangeFromDescriptor(marker.rangeDescriptor) || findRangeByTextQuote(marker.textQuote);
+        if (!range) return false;
+
+        const applied = applyRangeMarker(range, marker.markerId, marker.color);
+        if (applied) {
+            markerCache.set(marker.markerId, marker);
+        }
+
+        return applied;
+    }
+
+    async function restoreMarkersForCurrentPage() {
+        const response = await sendDbOp('marker.listBySite', { url: location.href });
+        if (!response?.success || !Array.isArray(response.data)) {
+            return { total: 0, restored: 0 };
+        }
+
+        const markers = response.data.slice(0, MAX_MARKERS_PER_PAGE);
+        let restoredCount = 0;
+
+        markers.forEach((marker) => {
+            if (restoreMarker(marker)) {
+                restoredCount += 1;
+            }
+        });
+
+        return {
+            total: markers.length,
+            restored: restoredCount,
+        };
+    }
+
+    function wait(ms) {
+        return new Promise((resolve) => {
+            setTimeout(resolve, ms);
+        });
+    }
+
+    async function restoreMarkersWithRetry() {
+        let attempt = 0;
+        let lastResult = { total: 0, restored: 0 };
+
+        while (attempt <= RESTORE_RETRY_COUNT) {
+            lastResult = await restoreMarkersForCurrentPage();
+            if (lastResult.total === 0 || lastResult.restored >= lastResult.total) {
+                return lastResult;
+            }
+
+            attempt += 1;
+            if (attempt > RESTORE_RETRY_COUNT) {
+                break;
+            }
+
+            await wait(RESTORE_RETRY_DELAY_MS);
+        }
+
+        return lastResult;
+    }
+
+    function handleDocumentClick(event) {
+        const marker = event.target.closest('.deepl-marker-highlight');
+        const inSelectionPalette = selectionPaletteElement && selectionPaletteElement.contains(event.target);
+        const inActionMenu = markerActionMenuElement && markerActionMenuElement.contains(event.target);
+
+        if (marker) {
+            event.preventDefault();
+            const markerId = marker.dataset.markerId;
+            if (!markerId) return;
+            showMarkerActionMenu(markerId, marker.getBoundingClientRect());
+            hideSelectionPalette();
+            return;
+        }
+
+        if (!inSelectionPalette) {
+            hideSelectionPalette();
+        }
+
+        if (!inActionMenu) {
+            hideMarkerActionMenu();
+        }
+    }
+
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message?.type === 'REQUEST_PAGE_CONTEXT') {
             try {
@@ -203,6 +959,33 @@
             } catch (error) {
                 sendResponse({ success: false, error: error?.message || String(error) });
             }
+            return true;
+        }
+
+        if (message?.type === 'MARKER_SCROLL_TO') {
+            const markerId = String(message.markerId || '');
+
+            (async () => {
+                let ok = scrollToMarker(markerId);
+                if (!ok) {
+                    await restoreMarkersWithRetry();
+                    ok = scrollToMarker(markerId);
+                }
+                sendResponse({ success: ok });
+            })().catch(() => {
+                sendResponse({ success: false });
+            });
+
+            return true;
+        }
+
+        if (message?.type === 'MARKER_REMOVE') {
+            const markerId = String(message.markerId || '');
+            if (markerId) {
+                markerCache.delete(markerId);
+                removeMarkerFromDom(markerId);
+            }
+            sendResponse({ success: true });
             return true;
         }
     });
@@ -234,4 +1017,34 @@
             }, 400);
         }
     });
+
+    // Show selection palette on right-click when text is selected
+    document.addEventListener('contextmenu', (event) => {
+        const range = getValidSelectionRange();
+        if (!range) return;
+
+        ensureSelectionPalette();
+        const rect = range.getBoundingClientRect();
+        if (!rect || (rect.width === 0 && rect.height === 0)) {
+            hideSelectionPalette();
+            return;
+        }
+
+        showUiAt(selectionPaletteElement, rect);
+    });
+
+    document.addEventListener('click', handleDocumentClick, true);
+    window.addEventListener('scroll', () => {
+        hideSelectionPalette();
+        hideMarkerActionMenu();
+    }, true);
+
+    window.addEventListener('resize', () => {
+        hideSelectionPalette();
+        hideMarkerActionMenu();
+    });
+
+    ensureMarkerStyles();
+    ensureMarkerActionMenu();
+    restoreMarkersWithRetry().catch(() => { });
 })();

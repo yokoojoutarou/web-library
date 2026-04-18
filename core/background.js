@@ -1,6 +1,61 @@
 // ==============================
-// DeepL Translate — Background Service Worker
+// Web Library Assistant — Background Service Worker
 // ==============================
+
+importScripts('../vendor/dexie.min.js', './db/repository.js');
+
+const DB_OPERATION_HANDLERS = Object.freeze({
+  'site.ensure': (repo, payload) => repo.ensureSite(payload),
+  'site.getByUrl': (repo, payload) => repo.getSiteByUrl(payload.url),
+  'site.delete': (repo, payload) => repo.deleteSite(payload.siteId),
+  'site.setTags': (repo, payload) => repo.setSiteTags(payload),
+
+  'chat.save': (repo, payload) => repo.saveChat(payload),
+  'chat.listBySite': (repo, payload) => repo.getChatsBySite(payload),
+
+  'thread.create': (repo, payload) => repo.createThread(payload),
+  'thread.list': (repo, payload) => repo.listThreads(payload),
+  'thread.get': (repo, payload) => repo.getThread(payload.threadId),
+  'thread.append': (repo, payload) => repo.appendThreadMessages(payload),
+  'thread.updateTitle': (repo, payload) => repo.updateThreadTitle(payload),
+
+  'note.upsert': (repo, payload) => repo.upsertNote(payload),
+  'note.list': (repo, payload) => repo.listNotes(payload),
+  'note.listBySite': (repo, payload) => repo.getNotesBySite(payload),
+  'note.delete': (repo, payload) => repo.deleteNote(payload.noteId),
+  'note.setTags': (repo, payload) => repo.setNoteTags(payload),
+
+  'marker.upsert': (repo, payload) => repo.upsertMarker(payload),
+  'marker.listBySite': (repo, payload) => repo.getMarkersBySite(payload),
+  'marker.delete': (repo, payload) => repo.deleteMarker(payload.markerId),
+
+  'folder.create': (repo, payload) => repo.createFolder(payload),
+  'folder.rename': (repo, payload) => repo.renameFolder(payload),
+  'folder.move': (repo, payload) => repo.moveFolder(payload),
+  'folder.delete': (repo, payload) => repo.deleteFolder(payload),
+  'folder.list': (repo, payload) => repo.listFolders(payload),
+
+  'library.createSiteFolder': (repo, payload) => repo.createSiteFolderFromSite(payload),
+  'library.moveSite': (repo, payload) => repo.moveSiteToFolder(payload),
+  'library.snapshot': (repo, payload) => repo.getLibrarySnapshot(payload),
+  'library.listSites': (repo, payload) => repo.listLibrarySites(payload),
+  'library.listNotes': (repo, payload) => repo.listLibraryNotes(payload),
+
+  'tag.rename': (repo, payload) => repo.renameTag(payload),
+  'tag.search': (repo, payload) => repo.findByTag(payload),
+});
+
+const LIBRARY_NOTIFY_OPS = Object.freeze(new Set([
+  'marker.upsert', 'marker.delete',
+  'note.upsert', 'note.delete',
+  'site.ensure', 'site.delete', 'site.setTags',
+  'folder.create', 'folder.rename', 'folder.move', 'folder.delete',
+  'library.createSiteFolder', 'library.moveSite',
+]));
+
+const NOTE_NOTIFY_OPS = Object.freeze(new Set([
+  'note.upsert', 'note.delete',
+]));
 
 // Open side panel when extension icon is clicked
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -17,6 +72,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
 
+  if (message.type === 'QUICK_TRANSLATE' || message.type === 'QUICK_AI_ASK') {
+    const actionType = message.type === 'QUICK_TRANSLATE' ? 'translate' : 'ai';
+    const msgType = actionType === 'translate' ? 'ACTIVATE_TRANSLATE' : 'ACTIVATE_AI_WITH_CONTEXT';
+
+    // MUST call open() synchronously to preserve the user gesture context
+    if (sender && sender.tab && sender.tab.windowId) {
+      chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch((e) => {
+        console.warn('Side panel open failed:', e);
+      });
+    }
+
+    // Set fallback intent in session storage
+    chrome.storage.session.set({
+      pendingSidebarAction: {
+        action: actionType,
+        text: message.text,
+        timestamp: Date.now()
+      }
+    }).catch(() => { });
+
+    // Attempt to send message in case sidebar is already successfully open
+    setTimeout(() => {
+      chrome.runtime.sendMessage({
+        type: msgType,
+        text: message.text
+      }).catch(() => { });
+    }, 150);
+
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (message.type === 'TRANSLATE') {
     handleTranslation(message.text, message.targetLang, message.sourceLang)
       .then(result => sendResponse({ success: true, data: result }))
@@ -25,7 +112,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'AI_ASK') {
-    handleAiAsk(message.prompt, message.contextText)
+    handleAiAsk(message.prompt, message.contextText, message.activeThreadId)
       .then(result => sendResponse({ success: true, data: result }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
@@ -37,7 +124,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
+
+  if (message.type === 'DB_OP') {
+    handleDbOperation(message.operation, message.payload, sender)
+      .then(result => {
+        const operation = String(message.operation || '');
+        if (operation === 'marker.upsert' || operation === 'marker.delete') {
+          chrome.runtime.sendMessage({
+            type: 'MARKER_UPDATED',
+          }).catch(() => { });
+        }
+
+        if (LIBRARY_NOTIFY_OPS.has(operation)) {
+          chrome.runtime.sendMessage({
+            type: 'LIBRARY_UPDATED',
+          }).catch(() => { });
+        }
+
+        if (NOTE_NOTIFY_OPS.has(operation)) {
+          chrome.runtime.sendMessage({
+            type: 'NOTE_UPDATED',
+          }).catch(() => { });
+        }
+
+        sendResponse({ success: true, data: result });
+      })
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
+
+function validateDbSender(sender) {
+  if (sender?.id !== chrome.runtime.id) {
+    throw new Error('Unauthorized DB_OP sender.');
+  }
+}
+
+async function handleDbOperation(operation, payload = {}, sender) {
+  validateDbSender(sender);
+
+  const repo = globalThis.ExtensionRepository;
+
+  if (!repo) {
+    throw new Error('Database repository is not initialized.');
+  }
+
+  const handler = DB_OPERATION_HANDLERS[operation];
+  if (typeof handler !== 'function') {
+    throw new Error(`Unsupported DB operation: ${operation}`);
+  }
+
+  return handler(repo, payload || {});
+}
 
 /**
  * Call the DeepL API to translate text
@@ -88,7 +226,7 @@ async function handleTranslation(text, targetLang, sourceLang) {
   };
 }
 
-async function handleAiAsk(prompt, contextText) {
+async function handleAiAsk(prompt, contextText, activeThreadId) {
   const trimmedPrompt = (prompt || '').trim();
   if (!trimmedPrompt) {
     throw new Error('Prompt is empty.');
@@ -107,39 +245,127 @@ async function handleAiAsk(prompt, contextText) {
   const model = aiModels[provider] || getDefaultAiModel(provider);
   const pageContext = await getActiveTabPageContext();
   const selectedText = ((contextText || '').trim() || (pageContext?.selectedText || '').trim()).slice(0, 4000);
+  const threadResult = await resolveThreadForRequest({
+    activeThreadId,
+    pageContext,
+    question: trimmedPrompt,
+  });
+  const thread = threadResult.thread;
+
   const userPrompt = buildAiPromptWithContext({
     question: trimmedPrompt,
     selectedText,
     pageContext,
+    threadMessages: thread?.messages || [],
   });
 
+  let result;
+
   if (provider === 'openai') {
-    return await askOpenAI(apiKey, model, userPrompt);
+    result = await askOpenAI(apiKey, model, userPrompt);
+  } else if (provider === 'anthropic') {
+    result = await askAnthropic(apiKey, model, userPrompt);
+  } else if (provider === 'gemini') {
+    result = await askGemini(apiKey, model, userPrompt);
+  } else {
+    throw new Error(`Unsupported AI provider: ${provider}`);
   }
 
-  if (provider === 'anthropic') {
-    return await askAnthropic(apiKey, model, userPrompt);
-  }
+  const updatedThread = await saveAiExchange({
+    threadId: thread.threadId,
+    question: trimmedPrompt,
+    answer: result?.answer || '',
+    provider,
+    apiKey,
+    model,
+  });
 
-  if (provider === 'gemini') {
-    return await askGemini(apiKey, model, userPrompt);
-  }
-
-  throw new Error(`Unsupported AI provider: ${provider}`);
+  return {
+    ...result,
+    threadId: updatedThread?.threadId || thread.threadId,
+    threadTitle: updatedThread?.title || thread.title || 'New Chat',
+  };
 }
 
-function buildAiPromptWithContext({ question, selectedText, pageContext }) {
+async function resolveThreadForRequest({ activeThreadId, pageContext, question }) {
+  const repo = globalThis.ExtensionRepository;
+
+  if (!repo) {
+    throw new Error('Database repository is not initialized.');
+  }
+
+  if (activeThreadId) {
+    const existing = await repo.getThread(activeThreadId);
+    if (existing) {
+      return { thread: existing, created: false };
+    }
+  }
+
+  const created = await repo.createThread({
+    url: (pageContext?.url || '').trim(),
+    title: question || 'New Chat',
+  });
+
+  return { thread: created, created: true };
+}
+
+async function saveAiExchange({ threadId, question, answer, provider, apiKey, model }) {
+  const repo = globalThis.ExtensionRepository;
+
+  if (!repo || !threadId || !question || !answer) {
+    return;
+  }
+
+  try {
+    const updated = await repo.appendThreadMessages({
+      threadId,
+      messages: [
+        { role: 'user', content: question, timestamp: new Date().toISOString() },
+        { role: 'assistant', content: answer, timestamp: new Date().toISOString() },
+      ],
+    });
+
+    const normalizedTitle = String(updated?.title || '').trim();
+    if (!normalizedTitle || normalizedTitle === 'New Chat') {
+      const generated = await generateThreadTitle({ provider, apiKey, model, question, answer });
+      if (generated) {
+        return await repo.updateThreadTitle({ threadId, title: generated });
+      }
+    }
+
+    return updated;
+  } catch {
+    // DB write failures must not break AI response flow.
+    return null;
+  }
+}
+
+function buildAiPromptWithContext({ question, selectedText, pageContext, threadMessages = [] }) {
   const title = (pageContext?.title || '').trim();
   const url = (pageContext?.url || '').trim();
   const pageText = (pageContext?.pageText || '').trim();
 
   const parts = [
     'You are answering a question about the current website content.',
+    'Continue the conversation naturally if previous messages are provided.',
     'Use the selected excerpt as highest-priority evidence when available.',
     'Use full page context as background/supporting context.',
-    '',
-    `Question:\n${question}`,
   ];
+
+  const trimmedThread = Array.isArray(threadMessages)
+    ? threadMessages.slice(-20).map((item) => ({
+      role: item?.role === 'assistant' ? 'assistant' : 'user',
+      content: String(item?.content || '').trim(),
+    })).filter((item) => item.content)
+    : [];
+
+  if (trimmedThread.length > 0) {
+    parts.push('', 'Conversation so far:');
+    trimmedThread.forEach((message) => {
+      const speaker = message.role === 'assistant' ? 'Assistant' : 'User';
+      parts.push(`${speaker}: ${message.content}`);
+    });
+  }
 
   if (selectedText) {
     parts.push('', 'PRIORITY CONTEXT (selected text, highest weight):', selectedText);
@@ -155,7 +381,38 @@ function buildAiPromptWithContext({ question, selectedText, pageContext }) {
     parts.push('', 'PAGE CONTEXT (full page content, lower weight):', pageText);
   }
 
+  parts.push('', `Question:\n${question}`);
+
   return parts.join('\n');
+}
+
+async function generateThreadTitle({ provider, apiKey, model, question, answer }) {
+  const titlePrompt = [
+    'Create a concise chat thread title in 8 words or fewer.',
+    'Return title text only. No quotes.',
+    '',
+    `User: ${question}`,
+    `Assistant: ${answer}`,
+  ].join('\n');
+
+  try {
+    let result;
+    if (provider === 'openai') {
+      result = await askOpenAI(apiKey, model, titlePrompt);
+    } else if (provider === 'anthropic') {
+      result = await askAnthropic(apiKey, model, titlePrompt);
+    } else if (provider === 'gemini') {
+      result = await askGemini(apiKey, model, titlePrompt);
+    } else {
+      return '';
+    }
+
+    const raw = String(result?.answer || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    return raw.length > 80 ? `${raw.slice(0, 79)}…` : raw;
+  } catch {
+    return '';
+  }
 }
 
 async function getActiveTabPageContext() {

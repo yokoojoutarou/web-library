@@ -1,6 +1,6 @@
-# DeepL Translate — Chrome Extension
+# Web Library Assistant — Chrome Extension
 
-A seamless Chrome sidebar translation extension powered by the DeepL API. Select text on any webpage and get instant translation in the side panel.
+A library-first Chrome side panel extension for collecting website knowledge with translation, notes, markers, and AI chat.
 
 ![Main View](docs/screenshot_main.png)
 
@@ -14,6 +14,7 @@ A seamless Chrome sidebar translation extension powered by the DeepL API. Select
 - 💬 **Ask AI (scaffold)** — Chat-style panel to ask about selected text (stub response)
 - ⚙️ **AI provider settings** — Register API key per provider and switch models dynamically
 - 🔄 **Auto model discovery** — Models are fetched automatically from the selected provider
+- 🗂️ **Library (MVP)** — Organize saved sites and notes with folder tree, move sites, and search by title/URL/note text
 - 🧠 **Context-aware AI** — Uses full page content by default and prioritizes selected text when present
 - 🧹 **Noise-reduced context** — Filters navigation/ads/footer-like content before sending page context to AI
 - 🎨 **Dark theme UI** — Minimal black-based design for a distraction-free experience
@@ -30,7 +31,7 @@ Sign up for a free account at [deepl.com/pro](https://www.deepl.com/pro#develope
 1. Open Chrome and go to `chrome://extensions`
 2. Enable **Developer mode** (top right toggle)
 3. Click **"Load unpacked"**
-4. Select this folder (`chrome-translate-extension`)
+4. Select this folder (`deepl-translate-extension`)
 
 ### 3. Configure API Key
 
@@ -58,7 +59,7 @@ Sign up for a free account at [deepl.com/pro](https://www.deepl.com/pro#develope
 ## File Structure
 
 ```text
-chrome-translate-extension/
+deepl-translate-extension/
 ├── manifest.json      # Manifest V3 configuration
 ├── core/
 │   └── background.js  # Service Worker — API calls & message routing
@@ -66,6 +67,9 @@ chrome-translate-extension/
 │   ├── ai/
 │   │   └── sidepanel/
 │   │       └── ai-chat.js    # AI chat UI logic scaffold
+│   ├── library/
+│   │   └── sidepanel/
+│   │       └── library-panel.js # Library UI logic (folders/sites/notes)
 │   └── translate/
 │       ├── content.js # Content script — text selection detection
 │       └── sidepanel/

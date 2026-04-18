@@ -1,5 +1,5 @@
 // ==============================
-// DeepL Translate — Side Panel Logic
+// Web Library Assistant — Side Panel Logic
 // ==============================
 
 (() => {
@@ -30,13 +30,26 @@
     const detectedLang = document.getElementById('detectedLang');
     const modeTranslateBtn = document.getElementById('modeTranslateBtn');
     const modeAiBtn = document.getElementById('modeAiBtn');
+    const modeNotesBtn = document.getElementById('modeNotesBtn');
+    const modeMarkersBtn = document.getElementById('modeMarkersBtn');
+    const modeLibraryBtn = document.getElementById('modeLibraryBtn');
+    const actionRail = document.getElementById('actionRail');
     const translateWorkspace = document.getElementById('translateWorkspace');
     const aiWorkspace = document.getElementById('aiWorkspace');
+    const notesWorkspace = document.getElementById('notesWorkspace');
+    const markersWorkspace = document.getElementById('markersWorkspace');
+    const libraryWorkspace = document.getElementById('libraryWorkspace');
 
     let isTranslating = false;
     let translateDebounce = null;
     let aiModelFetchDebounce = null;
     let aiFetchRequestId = 0;
+    let draggingActionId = null;
+    let currentWorkspaceMode = 'translate';
+    let isInitializing = true;
+
+    const ACTION_ORDER_KEY = 'workspaceActionOrder';
+    const DEFAULT_ACTION_ORDER = ['settings', 'translate', 'ai', 'notes', 'markers', 'library'];
 
     const FALLBACK_AI_PROVIDER_MODELS = {
         openai: ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini'],
@@ -48,11 +61,24 @@
     init();
 
     async function init() {
-        // Load saved settings
-        const settings = await chrome.storage.local.get([
-            'apiKey', 'apiType', 'targetLang', 'sourceLang', 'autoTranslate', 'workspaceMode',
-            'aiProvider', 'aiApiKeys', 'aiModels'
+        // Load saved settings and any pending sidebar action from context menu
+        const [settings, sessionParams] = await Promise.all([
+            chrome.storage.local.get([
+                'apiKey', 'apiType', 'targetLang', 'sourceLang', 'autoTranslate', 'workspaceMode',
+                'aiProvider', 'aiApiKeys', 'aiModels', ACTION_ORDER_KEY
+            ]),
+            chrome.storage.session.get(['pendingSidebarAction'])
         ]);
+
+        let workspaceMode = settings.workspaceMode;
+
+        const pendingAction = sessionParams.pendingSidebarAction;
+        let actionToExecute = null;
+        if (pendingAction && (Date.now() - pendingAction.timestamp < 3000)) {
+            workspaceMode = pendingAction.action;
+            actionToExecute = pendingAction;
+            await chrome.storage.session.remove('pendingSidebarAction');
+        }
 
         if (settings.apiKey) apiKeyInput.value = settings.apiKey;
         if (settings.apiType) apiTypeSelect.value = settings.apiType;
@@ -75,15 +101,50 @@
             selectedModel: aiModels[aiProvider],
         });
 
-        applyWorkspaceMode(settings.workspaceMode === 'ai' ? 'ai' : 'translate');
+        if (workspaceMode === 'ai' || workspaceMode === 'notes' || workspaceMode === 'markers' || workspaceMode === 'library') {
+            applyWorkspaceMode(workspaceMode);
+        } else {
+            applyWorkspaceMode('translate');
+        }
+
+        initializeActionRailOrder(settings[ACTION_ORDER_KEY]);
+        setupActionRailDnD();
 
         if (window.AIChatFeature && typeof window.AIChatFeature.init === 'function') {
             window.AIChatFeature.init();
         }
 
+        if (window.NoteFeature && typeof window.NoteFeature.init === 'function') {
+            window.NoteFeature.init();
+        }
+
+        if (window.MarkerFeature && typeof window.MarkerFeature.init === 'function') {
+            window.MarkerFeature.init();
+        }
+
+        if (window.LibraryFeature && typeof window.LibraryFeature.init === 'function') {
+            window.LibraryFeature.init();
+        }
+
         // Check if API key is set; if not, show settings modal
         if (!settings.apiKey) {
             settingsModal.classList.remove('hidden');
+        }
+
+        isInitializing = false;
+
+        if (actionToExecute) {
+            if (actionToExecute.action === 'translate') {
+                sourceText.value = actionToExecute.text || '';
+                updateCharCount();
+                translate();
+            } else if (actionToExecute.action === 'ai') {
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('deepl:addAiContext', {
+                        detail: { text: actionToExecute.text || '' }
+                    }));
+                }, 100);
+            }
         }
     }
 
@@ -97,9 +158,25 @@
                 detail: { text: message.text || '' }
             }));
 
-            if (autoTranslate.checked && message.text.trim()) {
+            if (!isInitializing && autoTranslate.checked && message.text.trim() && currentWorkspaceMode === 'translate') {
                 debouncedTranslate();
             }
+        }
+
+        if (message.type === 'ACTIVATE_TRANSLATE') {
+            chrome.storage.session.remove('pendingSidebarAction').catch(() => { });
+            applyWorkspaceMode('translate');
+            sourceText.value = message.text || '';
+            updateCharCount();
+            translate();
+        }
+
+        if (message.type === 'ACTIVATE_AI_WITH_CONTEXT') {
+            chrome.storage.session.remove('pendingSidebarAction').catch(() => { });
+            applyWorkspaceMode('ai');
+            window.dispatchEvent(new CustomEvent('deepl:addAiContext', {
+                detail: { text: message.text || '' }
+            }));
         }
     });
 
@@ -239,6 +316,155 @@
         applyWorkspaceMode('ai');
     });
 
+    modeNotesBtn.addEventListener('click', () => {
+        applyWorkspaceMode('notes');
+    });
+
+    modeMarkersBtn.addEventListener('click', () => {
+        applyWorkspaceMode('markers');
+    });
+
+    modeLibraryBtn.addEventListener('click', () => {
+        applyWorkspaceMode('library');
+    });
+
+    function getActionButtonMap() {
+        return {
+            settings: settingsBtn,
+            translate: modeTranslateBtn,
+            ai: modeAiBtn,
+            notes: modeNotesBtn,
+            markers: modeMarkersBtn,
+            library: modeLibraryBtn,
+        };
+    }
+
+    function normalizeActionOrder(rawOrder) {
+        const validSet = new Set(DEFAULT_ACTION_ORDER);
+        const requested = Array.isArray(rawOrder) ? rawOrder.map((item) => String(item || '').trim()) : [];
+        const unique = [];
+        const seen = new Set();
+
+        requested.forEach((id) => {
+            if (!validSet.has(id) || seen.has(id)) return;
+            unique.push(id);
+            seen.add(id);
+        });
+
+        DEFAULT_ACTION_ORDER.forEach((id) => {
+            if (!seen.has(id)) {
+                unique.push(id);
+                seen.add(id);
+            }
+        });
+
+        return unique;
+    }
+
+    function isSameActionOrder(left, right) {
+        if (!Array.isArray(left) || !Array.isArray(right)) return false;
+        if (left.length !== right.length) return false;
+        return left.every((id, index) => id === right[index]);
+    }
+
+    function getCurrentActionOrder() {
+        if (!actionRail) return [...DEFAULT_ACTION_ORDER];
+        return Array.from(actionRail.querySelectorAll('[data-action-id]'))
+            .map((el) => String(el.dataset.actionId || '').trim())
+            .filter(Boolean);
+    }
+
+    async function persistActionOrder(order) {
+        await chrome.storage.local.set({ [ACTION_ORDER_KEY]: normalizeActionOrder(order) });
+    }
+
+    function applyActionOrder(order) {
+        if (!actionRail) return;
+        const buttonMap = getActionButtonMap();
+        order.forEach((actionId) => {
+            const button = buttonMap[actionId];
+            if (button) {
+                actionRail.appendChild(button);
+            }
+        });
+    }
+
+    function initializeActionRailOrder(storedOrder) {
+        const normalizedOrder = normalizeActionOrder(storedOrder);
+        applyActionOrder(normalizedOrder);
+
+        if (!isSameActionOrder(storedOrder, normalizedOrder)) {
+            persistActionOrder(normalizedOrder).catch(() => { });
+        }
+    }
+
+    function setupActionRailDnD() {
+        if (!actionRail) return;
+
+        actionRail.addEventListener('dragstart', (event) => {
+            const button = event.target.closest('[data-action-id]');
+            if (!button || button.draggable !== true) {
+                draggingActionId = null;
+                return;
+            }
+
+            draggingActionId = String(button.dataset.actionId || '').trim();
+            if (!draggingActionId) return;
+
+            button.classList.add('rail-dragging');
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', draggingActionId);
+            }
+        });
+
+        actionRail.addEventListener('dragover', (event) => {
+            if (!draggingActionId) return;
+            event.preventDefault();
+
+            const target = event.target.closest('[data-action-id]');
+            const draggingEl = actionRail.querySelector(`.rail-btn[data-action-id="${draggingActionId}"]`);
+
+            actionRail.querySelectorAll('.rail-drop-target').forEach((el) => {
+                el.classList.remove('rail-drop-target');
+            });
+
+            if (!target || !draggingEl || target === draggingEl) {
+                return;
+            }
+
+            target.classList.add('rail-drop-target');
+            const rect = target.getBoundingClientRect();
+            const before = event.clientY < rect.top + rect.height / 2;
+            if (before) {
+                actionRail.insertBefore(draggingEl, target);
+            } else {
+                actionRail.insertBefore(draggingEl, target.nextSibling);
+            }
+        });
+
+        actionRail.addEventListener('drop', (event) => {
+            if (!draggingActionId) return;
+            event.preventDefault();
+
+            actionRail.querySelectorAll('.rail-drop-target').forEach((el) => {
+                el.classList.remove('rail-drop-target');
+            });
+        });
+
+        actionRail.addEventListener('dragend', () => {
+            actionRail.querySelectorAll('.rail-dragging, .rail-drop-target').forEach((el) => {
+                el.classList.remove('rail-dragging');
+                el.classList.remove('rail-drop-target');
+            });
+
+            if (draggingActionId) {
+                persistActionOrder(getCurrentActionOrder()).catch(() => { });
+            }
+            draggingActionId = null;
+        });
+    }
+
     autoTranslate.addEventListener('change', () => {
         chrome.storage.local.set({ autoTranslate: autoTranslate.checked });
     });
@@ -282,16 +508,34 @@
 
     function applyWorkspaceMode(mode) {
         const isAi = mode === 'ai';
+        const isNotes = mode === 'notes';
+        const isMarkers = mode === 'markers';
+        const isLibrary = mode === 'library';
+        const isTranslate = !isAi && !isNotes && !isMarkers && !isLibrary;
+        const nextMode = isAi ? 'ai' : isNotes ? 'notes' : isMarkers ? 'markers' : isLibrary ? 'library' : 'translate';
 
-        modeTranslateBtn.classList.toggle('active', !isAi);
+        modeTranslateBtn.classList.toggle('active', isTranslate);
         modeAiBtn.classList.toggle('active', isAi);
-        modeTranslateBtn.setAttribute('aria-selected', String(!isAi));
-        modeAiBtn.setAttribute('aria-selected', String(isAi));
+        modeNotesBtn.classList.toggle('active', isNotes);
+        modeMarkersBtn.classList.toggle('active', isMarkers);
+        modeLibraryBtn.classList.toggle('active', isLibrary);
+        modeTranslateBtn.setAttribute('aria-pressed', String(isTranslate));
+        modeAiBtn.setAttribute('aria-pressed', String(isAi));
+        modeNotesBtn.setAttribute('aria-pressed', String(isNotes));
+        modeMarkersBtn.setAttribute('aria-pressed', String(isMarkers));
+        modeLibraryBtn.setAttribute('aria-pressed', String(isLibrary));
 
-        translateWorkspace.classList.toggle('hidden', isAi);
+        translateWorkspace.classList.toggle('hidden', !isTranslate);
         aiWorkspace.classList.toggle('hidden', !isAi);
+        notesWorkspace.classList.toggle('hidden', !isNotes);
+        markersWorkspace.classList.toggle('hidden', !isMarkers);
+        libraryWorkspace.classList.toggle('hidden', !isLibrary);
 
-        chrome.storage.local.set({ workspaceMode: isAi ? 'ai' : 'translate' });
+        currentWorkspaceMode = nextMode;
+        chrome.storage.local.set({ workspaceMode: nextMode });
+        window.dispatchEvent(new CustomEvent('deepl:workspaceModeChanged', {
+            detail: { mode: nextMode }
+        }));
     }
 
     // --- Settings Modal ---
